@@ -246,6 +246,7 @@ function applyMenuItemToCursor() {
   const selectedType = menuItems[selectedMenuIndex].type;
   
   if (currentMode === 'INTERACT') {
+    // In Interact mode, clicking a cell ONLY toggles input switches
     if (currentCell.type === 'INPUT') {
       currentCell.value = currentCell.value === 1 ? 0 : 1;
       triggerRumble('medium');
@@ -256,6 +257,7 @@ function applyMenuItemToCursor() {
   }
 
   if (currentMode === 'PLACING') {
+    // Stamp the selected menu tool onto the grid
     if (selectedType === 'EMPTY') {
       gridData[cellKey] = { type: 'EMPTY', value: 0, formula: '', inputs: [], delayTime: 0.5 };
       triggerRumble('light');
@@ -290,8 +292,19 @@ function handleCellClick(r, c) {
   cursorRow = r;
   cursorCol = c;
 
+  // STRICT MODE SEPARATION: Never place items while wiring or interacting
   if (currentMode === 'WIRING') {
+    if (!activeGateCell) {
+      currentMode = 'INTERACT';
+      return;
+    }
+    
     const cell = gridData[`${activeGateCell.r}_${activeGateCell.c}`];
+    if (!cell) {
+      currentMode = 'INTERACT';
+      activeGateCell = null;
+      return;
+    }
     
     if (cell.type === 'NOT' || cell.type === 'STD_REF' || cell.type === 'DELAY') {
       cell.inputs = [{ r, c }];
@@ -307,7 +320,7 @@ function handleCellClick(r, c) {
         triggerRumble('medium');
       }
     } else {
-      // Prevent duplicate cell input in multi-input gates
+      // Prevent duplicate cell input in multi-input gates (AND, OR, XOR)
       const alreadyAdded = wiringInputs.some(inp => inp.r === r && inp.c === c);
       if (alreadyAdded) {
         triggerRumble('light');
@@ -325,7 +338,19 @@ function handleCellClick(r, c) {
     }
     evaluateAll();
     renderGrid();
-  } else {
+  } 
+  else if (currentMode === 'INTERACT') {
+    // Clicking in interact mode only toggles input switches
+    const cellKey = `${r}_${c}`;
+    const currentCell = gridData[cellKey];
+    if (currentCell && currentCell.type === 'INPUT') {
+      currentCell.value = currentCell.value === 1 ? 0 : 1;
+      triggerRumble('medium');
+      evaluateAll();
+      renderGrid();
+    }
+  } 
+  else if (currentMode === 'PLACING') {
     applyMenuItemToCursor();
   }
 }
