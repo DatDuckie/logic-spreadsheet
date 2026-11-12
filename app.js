@@ -375,3 +375,419 @@ function executeGridAction(actionType) {
       for (let c = 0; c < cols; c++) {
         const cell = { ...gridData[`${oldR}_${c}`] };
         cell.inputs = cell.inputs.map(inp => ({
+          r: inp.r >= insertAt ? inp.r + 1 : inp.r,
+          c: inp.c
+        }));
+        if (cell.formula && cell.inputs.length > 0) {
+          const refs = cell.inputs.map(i => getCellId(i.r, i.c)).join(', ');
+          cell.formula = cell.type === 'STD_REF' ? refs : `${cell.type}(${refs})`;
+        }
+        newGrid[`${r}_${c}`] = cell;
+      }
+    }
+  } else if (type === 'COL') {
+    const insertAt = actionType === 'BEFORE' ? index : index + 1;
+    cols++;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (c === insertAt) {
+          newGrid[`${r}_${c}`] = { type: 'EMPTY', value: 0, formula: '', inputs: [] };
+          continue;
+        }
+        const oldC = c > insertAt ? c - 1 : c;
+        const cell = { ...gridData[`${r}_${oldC}`] };
+        cell.inputs = cell.inputs.map(inp => ({
+          r: inp.r,
+          c: inp.c >= insertAt ? inp.c + 1 : inp.c
+        }));
+        if (cell.formula && cell.inputs.length > 0) {
+          const refs = cell.inputs.map(i => getCellId(i.r, i.c)).join(', ');
+          cell.formula = cell.type === 'STD_REF' ? refs : `${cell.type}(${refs})`;
+        }
+        newGrid[`${r}_${c}`] = cell;
+      }
+    }
+  }
+
+  gridData = newGrid;
+  contextTarget = null;
+  document.getElementById('context-menu').style.display = 'none';
+  triggerRumble('medium');
+  evaluateAll();
+  renderGrid();
+}
+
+function executeDelete() {
+  if (!contextTarget) return;
+  const { type, index } = contextTarget;
+  const newGrid = {};
+
+  if (type === 'ROW' && rows > 1) {
+    const delR = index;
+    for (let r = 0; r < rows; r++) {
+      if (r === delR) continue;
+      const newR = r > delR ? r - 1 : r;
+      for (let c = 0; c < cols; c++) {
+        const cell = { ...gridData[`${r}_${c}`] };
+        cell.inputs = cell.inputs.filter(inp => inp.r !== delR).map(inp => ({
+          r: inp.r > delR ? inp.r - 1 : inp.r,
+          c: inp.c
+        }));
+        if (cell.formula && cell.inputs.length > 0) {
+          const refs = cell.inputs.map(i => getCellId(i.r, i.c)).join(', ');
+          cell.formula = cell.type === 'STD_REF' ? refs : `${cell.type}(${refs})`;
+        } else if (cell.formula) {
+          cell.formula = '';
+        }
+        newGrid[`${newR}_${c}`] = cell;
+      }
+    }
+    rows--;
+    if (cursorRow >= rows) cursorRow = rows - 1;
+  } else if (type === 'COL' && cols > 1) {
+    const delC = index;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (c === delC) continue;
+        const newC = c > delC ? c - 1 : c;
+        const cell = { ...gridData[`${r}_${c}`] };
+        cell.inputs = cell.inputs.filter(inp => inp.c !== delC).map(inp => ({
+          r: inp.r,
+          c: inp.c > delC ? inp.c - 1 : inp.c
+        }));
+        if (cell.formula && cell.inputs.length > 0) {
+          const refs = cell.inputs.map(i => getCellId(i.r, i.c)).join(', ');
+          cell.formula = cell.type === 'STD_REF' ? refs : `${cell.type}(${refs})`;
+        } else if (cell.formula) {
+          cell.formula = '';
+        }
+        newGrid[`${r}_${newC}`] = cell;
+      }
+    }
+    cols--;
+    if (cursorCol >= cols) cursorCol = cols - 1;
+  }
+
+  gridData = newGrid;
+  contextTarget = null;
+  document.getElementById('context-menu').style.display = 'none';
+  triggerRumble('medium');
+  evaluateAll();
+  renderGrid();
+}
+
+document.getElementById('ctx-insert-before').addEventListener('click', (e) => { e.stopPropagation(); executeGridAction('BEFORE'); });
+document.getElementById('ctx-insert-after').addEventListener('click', (e) => { e.stopPropagation(); executeGridAction('AFTER'); });
+document.getElementById('ctx-delete').addEventListener('click', (e) => { e.stopPropagation(); executeDelete(); });
+
+function attachTableListeners() {
+  document.querySelectorAll('.cell').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const r = parseInt(cell.dataset.row);
+      const c = parseInt(cell.dataset.col);
+      handleCellClick(r, c);
+    });
+  });
+
+  document.querySelectorAll('.col-header').forEach(th => {
+    let timer;
+    const colIdx = parseInt(th.dataset.col);
+    th.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openContextMenu(e.clientX, e.clientY, 'COL', colIdx);
+    });
+    th.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      timer = setTimeout(() => {
+        openContextMenu(touch.clientX, touch.clientY, 'COL', colIdx);
+      }, 550);
+    }, { passive: true });
+    th.addEventListener('touchend', () => clearTimeout(timer));
+  });
+
+  document.querySelectorAll('.row-header[data-row]').forEach(td => {
+    let timer;
+    const rowIdx = parseInt(td.dataset.row);
+    td.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openContextMenu(e.clientX, e.clientY, 'ROW', rowIdx);
+    });
+    const th = td;
+    th.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      timer = setTimeout(() => {
+        openContextMenu(touch.clientX, touch.clientY, 'ROW', rowIdx);
+      }, 550);
+    }, { passive: true });
+    th.addEventListener('touchend', () => clearTimeout(timer));
+  });
+}
+
+function openContextMenu(x, y, type, index) {
+  contextTarget = { type, index };
+  const menu = document.getElementById('context-menu');
+  const safeX = Math.min(x, window.innerWidth - 180);
+  const safeY = Math.min(y, window.innerHeight - 120);
+  menu.style.left = `${Math.max(10, safeX)}px`;
+  menu.style.top = `${Math.max(10, safeY)}px`;
+  menu.style.display = 'block';
+}
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#context-menu')) {
+    document.getElementById('context-menu').style.display = 'none';
+  }
+});
+
+// Pinch-to-Zoom
+const gridContainer = document.getElementById('grid-container');
+const zoomWrapper = document.getElementById('grid-zoom-wrapper');
+
+function getTouchDistance(touches) {
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.hypot(dx, dy);
+}
+
+gridContainer.addEventListener('touchstart', (e) => {
+  tryEnterFullscreen();
+  if (e.touches.length === 2) {
+    initialPinchDistance = getTouchDistance(e.touches);
+    initialScale = currentScale;
+  }
+}, { passive: true });
+
+gridContainer.addEventListener('touchmove', (e) => {
+  if (e.touches.length === 2 && initialPinchDistance) {
+    e.preventDefault();
+    const currentDist = getTouchDistance(e.touches);
+    const scaleFactor = currentDist / initialPinchDistance;
+    currentScale = Math.min(1.5, Math.max(0.35, initialScale * scaleFactor));
+    zoomWrapper.style.transform = `scale(${currentScale})`;
+    updateStatusBar();
+  }
+}, { passive: false });
+
+gridContainer.addEventListener('touchend', (e) => {
+  if (e.touches.length < 2) initialPinchDistance = null;
+});
+
+// CSV Export
+function exportToCSV() {
+  tryEnterFullscreen();
+  let csvContent = '';
+  for (let r = 0; r < rows; r++) {
+    let rowArr = [];
+    for (let c = 0; c < cols; c++) {
+      const cell = gridData[`${r}_${c}`];
+      rowArr.push(cell.formula ? `"=${cell.formula}"` : cell.value);
+    }
+    csvContent += rowArr.join(',') + '\r\n';
+  }
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'logic_circuit_sheet.csv';
+  a.click();
+}
+
+document.getElementById('export-btn').addEventListener('click', exportToCSV);
+
+// Gamepad Poll Loop with Joystick Support (Left Stick = Grid Navigation, Right Stick = Menu Scrolling)
+function pollGamepads() {
+  const gamepads = navigator.getGamepads();
+  const gp = gamepads[0];
+
+  if (gp) {
+    const currentTime = performance.now();
+    if (currentTime - lastInputTime > inputDelay) {
+      if (handleControllerInput(gp)) {
+        lastInputTime = currentTime;
+      }
+    }
+  }
+  requestAnimationFrame(pollGamepads);
+}
+
+function handleControllerInput(gp) {
+  let actionTaken = false;
+
+  // D-Pad buttons
+  const up = gp.buttons[12]?.pressed;
+  const down = gp.buttons[13]?.pressed;
+  const left = gp.buttons[14]?.pressed;
+  const right = gp.buttons[15]?.pressed;
+  
+  // Joysticks (Axes) with deadzone threshold (0.5)
+  const leftStickX = gp.axes[0] || 0;
+  const leftStickY = gp.axes[1] || 0;
+  const rightStickX = gp.axes[2] || 0; // Right stick X for menu horizontal scrolling
+
+  const joyUp = leftStickY < -0.5 || up;
+  const joyDown = leftStickY > 0.5 || down;
+  const joyLeft = leftStickX < -0.5 || left;
+  const joyRight = leftStickX > 0.5 || right;
+
+  const btnA = gp.buttons[0]?.pressed;
+  const btnB = gp.buttons[1]?.pressed;
+  const btnLB = gp.buttons[4]?.pressed;
+  const btnRB = gp.buttons[5]?.pressed;
+  const btnSelect = gp.buttons[8]?.pressed; // Dedicated select for re-wiring
+  const btnStart = gp.buttons[9]?.pressed;   // Dedicated start for menu
+
+  const anyDirection = joyUp || joyDown || joyLeft || joyRight;
+  const currentTime = performance.now();
+
+  // 1. MENU MODE: Controlled by Start button, LB/RB, or Right Joystick X axis
+  if (currentMode === 'MENU') {
+    if (btnLB || joyLeft || rightStickX < -0.5) {
+      selectedMenuIndex = (selectedMenuIndex - 1 + menuItems.length) % menuItems.length;
+      triggerRumble('light');
+      actionTaken = true;
+    }
+    if (btnRB || joyRight || rightStickX > 0.5) {
+      selectedMenuIndex = (selectedMenuIndex + 1) % menuItems.length;
+      triggerRumble('light');
+      actionTaken = true;
+    }
+    if (btnStart || btnA) {
+      currentMode = 'PLACING';
+      triggerRumble('medium');
+      actionTaken = true;
+    }
+    if (btnB) {
+      currentMode = 'INTERACT';
+      triggerRumble('light');
+      actionTaken = true;
+    }
+  }
+  // 2. INTERACT MODE: Safe navigation via Left Stick / D-Pad
+  else if (currentMode === 'INTERACT') {
+    if (anyDirection && (currentTime - lastInputTime > tapDelay)) {
+      if (joyUp) cursorRow = Math.max(0, cursorRow - 1);
+      if (joyDown) cursorRow = Math.min(rows - 1, cursorRow + 1);
+      if (joyLeft) cursorCol = Math.max(0, cursorCol - 1);
+      if (joyRight) cursorCol = Math.min(cols - 1, cols - 1 < 0 ? 0 : cols - 1); // bounds check
+      cursorCol = Math.max(0, Math.min(cols - 1, cursorCol));
+      
+      triggerRumble('light');
+      lastInputTime = currentTime;
+      actionTaken = true;
+    }
+
+    if (btnA) {
+      applyMenuItemToCursor();
+      actionTaken = true;
+    }
+    if (btnStart) {
+      currentMode = 'MENU';
+      triggerRumble('medium');
+      actionTaken = true;
+    }
+    if (btnSelect) {
+      const cell = gridData[`${cursorRow}_${cursorCol}`];
+      if (['AND', 'OR', 'XOR', 'NOT', 'STD_REF'].includes(cell.type)) {
+        currentMode = 'WIRING';
+        activeGateCell = { r: cursorRow, c: cursorCol };
+        wiringInputs = [...cell.inputs];
+        triggerRumble('medium');
+        actionTaken = true;
+      }
+    }
+  }
+  // 3. PLACING MODE: Moving via Left Stick / D-Pad
+  else if (currentMode === 'PLACING') {
+    if (anyDirection && (currentTime - lastInputTime > tapDelay)) {
+      if (joyUp) cursorRow = Math.max(0, cursorRow - 1);
+      if (joyDown) cursorRow = Math.min(rows - 1, cursorRow + 1);
+      if (joyLeft) cursorCol = Math.max(0, cursorCol - 1);
+      if (joyRight) cursorCol = Math.min(cols - 1, cursorCol + 1);
+      
+      triggerRumble('light');
+      lastInputTime = currentTime;
+      actionTaken = true;
+    }
+
+    if (btnA) {
+      applyMenuItemToCursor();
+      actionTaken = true;
+    }
+    if (btnB) {
+      currentMode = 'INTERACT';
+      triggerRumble('medium');
+      actionTaken = true;
+    }
+  }
+  // 4. WIRING MODE: Moving via Left Stick / D-Pad
+  else if (currentMode === 'WIRING') {
+    if (anyDirection && (currentTime - lastInputTime > tapDelay)) {
+      if (joyUp) cursorRow = Math.max(0, cursorRow - 1);
+      if (joyDown) cursorRow = Math.min(rows - 1, cursorRow + 1);
+      if (joyLeft) cursorCol = Math.max(0, cursorCol - 1);
+      if (joyRight) cursorCol = Math.min(cols - 1, cursorCol + 1);
+      
+      triggerRumble('light');
+      lastInputTime = currentTime;
+      actionTaken = true;
+    }
+
+    if (btnA) {
+      handleCellClick(cursorRow, cursorCol);
+      actionTaken = true;
+    }
+    if (btnB || btnSelect) {
+      finishWiring();
+      actionTaken = true;
+    }
+  }
+
+  if (actionTaken) {
+    tryEnterFullscreen();
+    evaluateAll();
+    renderGrid();
+  }
+
+  return actionTaken;
+}
+
+// Keyboard Fallbacks
+window.addEventListener('keydown', (e) => {
+  if (currentMode === 'MENU') {
+    if (e.key === 'ArrowLeft' || e.key === 'q') selectedMenuIndex = (selectedMenuIndex - 1 + menuItems.length) % menuItems.length;
+    if (e.key === 'ArrowRight' || e.key === 'e') selectedMenuIndex = (selectedMenuIndex + 1) % menuItems.length;
+    if (e.key === 'Enter' || e.key === 'Escape') { currentMode = 'PLACING'; }
+  } else if (currentMode === 'INTERACT') {
+    if (e.key === 'ArrowUp') cursorRow = Math.max(0, cursorRow - 1);
+    if (e.key === 'ArrowDown') cursorRow = Math.min(rows - 1, cursorRow + 1);
+    if (e.key === 'ArrowLeft') cursorCol = Math.max(0, cursorCol - 1);
+    if (e.key === 'ArrowRight') cursorCol = Math.min(cols - 1, cursorCol + 1);
+    if (e.key === 'm' || e.key === 'M') currentMode = 'MENU';
+    if (e.key === 'Enter' || e.key === ' ') applyMenuItemToCursor();
+  } else if (currentMode === 'PLACING') {
+    if (e.key === 'ArrowUp') cursorRow = Math.max(0, cursorRow - 1);
+    if (e.key === 'ArrowDown') cursorRow = Math.min(rows - 1, cursorRow + 1);
+    if (e.key === 'ArrowLeft') cursorCol = Math.max(0, cursorCol - 1);
+    if (e.key === 'ArrowRight') cursorCol = Math.min(cols - 1, cursorCol + 1);
+    if (e.key === 'Escape' || e.key === 'b' || e.key === 'B') currentMode = 'INTERACT';
+    if (e.key === 'Enter' || e.key === ' ') applyMenuItemToCursor();
+  } else if (currentMode === 'WIRING') {
+    if (e.key === 'ArrowUp') cursorRow = Math.max(0, cursorRow - 1);
+    if (e.key === 'ArrowDown') cursorRow = Math.min(rows - 1, cursorRow + 1);
+    if (e.key === 'ArrowLeft') cursorCol = Math.max(0, cursorCol - 1);
+    if (e.key === 'ArrowRight') cursorCol = Math.min(cols - 1, cursorCol + 1);
+    if (e.key === 'Enter') handleCellClick(cursorRow, cursorCol);
+    if (e.key === 'b' || e.key === 'B' || e.key === 'Escape') finishWiring();
+  }
+  evaluateAll();
+  renderGrid();
+  e.preventDefault();
+});
+
+window.addEventListener('load', () => {
+  initGrid();
+  renderGrid();
+  requestAnimationFrame(pollGamepads);
+});
