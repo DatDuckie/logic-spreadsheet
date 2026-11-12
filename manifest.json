@@ -1,0 +1,9 @@
+{
+  "name": "Logic Spreadsheet PWA",
+  "short_name": "LogicSheet",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#090a0f",
+  "theme_color": "#090a0f",
+  "icons": []
+}
