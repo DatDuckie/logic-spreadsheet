@@ -162,7 +162,7 @@ function updateStatusBar() {
   const cellCoord = getCellId(cursorRow, cursorCol);
   const cell = gridData[`${cursorRow}_${cursorCol}`];
   let modeLabel = currentMode;
-  if (currentMode === 'INTERACT') modeLabel = 'INTERACT (Left Stick/D-Pad to move)';
+  if (currentMode === 'INTERACT') modeLabel = 'INTERACT (Left Stick / D-Pad)';
   if (currentMode === 'MENU') modeLabel = 'MENU (Right Stick / LB/RB to select tool, Start to confirm)';
   if (currentMode === 'PLACING') modeLabel = `PLACING: ${menuItems[selectedMenuIndex].label} (A to stamp, B to exit)`;
   if (currentMode === 'WIRING') modeLabel = 'WIRING (Select inputs with A, B or Select to finish)';
@@ -624,7 +624,7 @@ function handleControllerInput(gp) {
   // Joysticks (Axes) with deadzone threshold (0.5)
   const leftStickX = gp.axes[0] || 0;
   const leftStickY = gp.axes[1] || 0;
-  const rightStickX = gp.axes[2] || 0; // Right stick X for menu horizontal scrolling
+  const rightStickX = gp.axes[2] || 0;
 
   const joyUp = leftStickY < -0.5 || up;
   const joyDown = leftStickY > 0.5 || down;
@@ -635,8 +635,8 @@ function handleControllerInput(gp) {
   const btnB = gp.buttons[1]?.pressed;
   const btnLB = gp.buttons[4]?.pressed;
   const btnRB = gp.buttons[5]?.pressed;
-  const btnSelect = gp.buttons[8]?.pressed; // Dedicated select for re-wiring
-  const btnStart = gp.buttons[9]?.pressed;   // Dedicated start for menu
+  const btnSelect = gp.buttons[8]?.pressed;
+  const btnStart = gp.buttons[9]?.pressed;
 
   const anyDirection = joyUp || joyDown || joyLeft || joyRight;
   const currentTime = performance.now();
@@ -670,8 +670,7 @@ function handleControllerInput(gp) {
       if (joyUp) cursorRow = Math.max(0, cursorRow - 1);
       if (joyDown) cursorRow = Math.min(rows - 1, cursorRow + 1);
       if (joyLeft) cursorCol = Math.max(0, cursorCol - 1);
-      if (joyRight) cursorCol = Math.min(cols - 1, cols - 1 < 0 ? 0 : cols - 1); // bounds check
-      cursorCol = Math.max(0, Math.min(cols - 1, cursorCol));
+      if (joyRight) cursorCol = Math.min(cols - 1, cursorCol + 1); // Fixed bug here!
       
       triggerRumble('light');
       lastInputTime = currentTime;
@@ -704,7 +703,7 @@ function handleControllerInput(gp) {
       if (joyUp) cursorRow = Math.max(0, cursorRow - 1);
       if (joyDown) cursorRow = Math.min(rows - 1, cursorRow + 1);
       if (joyLeft) cursorCol = Math.max(0, cursorCol - 1);
-      if (joyRight) cursorCol = Math.min(cols - 1, cursorCol + 1);
+      if (joyRight) cursorCol = Math.min(cols - 1, cursorCol + 1); // Fixed bug here!
       
       triggerRumble('light');
       lastInputTime = currentTime;
@@ -727,7 +726,7 @@ function handleControllerInput(gp) {
       if (joyUp) cursorRow = Math.max(0, cursorRow - 1);
       if (joyDown) cursorRow = Math.min(rows - 1, cursorRow + 1);
       if (joyLeft) cursorCol = Math.max(0, cursorCol - 1);
-      if (joyRight) cursorCol = Math.min(cols - 1, cursorCol + 1);
+      if (joyRight) cursorCol = Math.min(cols - 1, cursorCol + 1); // Fixed bug here!
       
       triggerRumble('light');
       lastInputTime = currentTime;
