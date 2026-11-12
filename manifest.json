@@ -1,9 +1,17 @@
 {
-  "name": "Logic Spreadsheet PWA",
-  "short_name": "LogicSheet",
-  "start_url": "index.html",
-  "display": "standalone",
+  "name": "Logic Grid Circuit",
+  "short_name": "LogicGrid",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "landscape",
   "background_color": "#090a0f",
   "theme_color": "#090a0f",
-  "icons": []
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='96' fill='%23090a0f'/%3E%3Cg stroke='%23ffffff' stroke-opacity='0.2' stroke-width='6'%3E%3Cline x1='170' y1='40' x2='170' y2='472'/%3E%3Cline x1='342' y1='40' x2='342' y2='472'/%3E%3Cline x1='40' y1='170' x2='472' y2='170'/%3E%3Cline x1='40' y1='342' x2='472' y2='342'/%3E%3C/g%3E%3Crect x='65' y='115' width='90' height='45' rx='8' fill='%234ade80'/%3E%3Crect x='65' y='352' width='90' height='45' rx='8' fill='%23143d22' stroke='%234ade80' stroke-width='4'/%3E%3Cpath d='M190 120 H270 C350 120 400 180 400 256 C400 332 350 392 270 392 H190 Z' fill='%23ea580c' stroke='%23fb923c' stroke-width='10'/%3E%3Cline x1='155' y1='138' x2='190' y2='138' stroke='%234ade80' stroke-width='10'/%3E%3Cline x1='155' y1='374' x2='190' y2='374' stroke='%234ade80' stroke-width='10'/%3E%3Cline x1='400' y1='256' x2='455' y2='256' stroke='%23fb923c' stroke-width='12'/%3E%3Ccircle cx='455' cy='256' r='14' fill='%23fb923c'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }
