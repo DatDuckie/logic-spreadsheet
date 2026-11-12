@@ -805,4 +805,28 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight') cursorCol = Math.min(cols - 1, cursorCol + 1);
     if (e.key === 'm' || e.key === 'M') currentMode = 'MENU';
     if (e.key === 'Enter' || e.key === ' ') applyMenuItemToCursor();
-  } else if (currentMode === 'PLAC
+  } else if (currentMode === 'PLACING') {
+    if (e.key === 'ArrowUp') cursorRow = Math.max(0, cursorRow - 1);
+    if (e.key === 'ArrowDown') cursorRow = Math.min(rows - 1, cursorRow + 1);
+    if (e.key === 'ArrowLeft') cursorCol = Math.max(0, cursorCol - 1);
+    if (e.key === 'ArrowRight') cursorCol = Math.min(cols - 1, cursorCol + 1);
+    if (e.key === 'Escape' || e.key === 'b' || e.key === 'B') currentMode = 'INTERACT';
+    if (e.key === 'Enter' || e.key === ' ') applyMenuItemToCursor();
+  } else if (currentMode === 'WIRING') {
+    if (e.key === 'ArrowUp') cursorRow = Math.max(0, cursorRow - 1);
+    if (e.key === 'ArrowDown') cursorRow = Math.min(rows - 1, cursorRow + 1);
+    if (e.key === 'ArrowLeft') cursorCol = Math.max(0, cursorCol - 1);
+    if (e.key === 'ArrowRight') cursorCol = Math.min(cols - 1, cursorCol + 1);
+    if (e.key === 'Enter') handleCellClick(cursorRow, cursorCol);
+    if (e.key === 'b' || e.key === 'B' || e.key === 'Escape') finishWiring();
+  }
+  evaluateAll();
+  renderGrid();
+  e.preventDefault();
+});
+
+window.addEventListener('load', () => {
+  initGrid();
+  renderGrid();
+  requestAnimationFrame(pollGamepads);
+});
