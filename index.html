@@ -1,0 +1,1509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SpatialCrafter AR/VR - Precision 3D & Controller CAD</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter & JetBrains Mono for Precision Numbers -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Three.js (r128) + Controls + CSG BSP Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://esm.sh/three@0.128.0"
+            }
+        }
+    </script>
+    <script type="module">
+        import { CSG } from 'https://esm.sh/three-csg-ts@3.1.11?external=three';
+        window.CSG = CSG;
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            touch-action: none;
+            background-color: #090d16;
+            color: #f8fafc;
+            user-select: none;
+        }
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        #canvas-container {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.82);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+        }
+        .glass-panel-light {
+            background: rgba(30, 41, 59, 0.72);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.14);
+        }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            opacity: 1;
+        }
+        /* Custom scrollbar for controller legend */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 4px; }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden">
+
+    <!-- 3D WebGL / WebXR Viewport -->
+    <div id="canvas-container"></div>
+
+    <!-- Top Navigation & Status Bar -->
+    <header class="fixed top-0 left-0 right-0 z-20 p-2.5 sm:p-4 pointer-events-none flex flex-wrap items-center justify-between gap-2">
+        <!-- Brand & Calibration Indicator -->
+        <div class="glass-panel rounded-2xl px-3.5 py-2 flex items-center gap-3 pointer-events-auto">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                <i class="fa-solid fa-cube text-white text-base"></i>
+            </div>
+            <div>
+                <h1 class="text-sm sm:text-base font-bold tracking-tight text-white leading-tight">SpatialCrafter <span class="text-cyan-400">AR/CAD</span></h1>
+                <div class="flex items-center gap-2 text-[11px] text-slate-300 font-mono">
+                    <span id="unit-display-header" class="text-emerald-400 font-semibold">1 Unit = 1.00 cm</span>
+                    <span>•</span>
+                    <span id="gamepad-status" class="text-amber-400 flex items-center gap-1">
+                        <i class="fa-solid fa-gamepad"></i> <span>No Controller</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Precision Tools & Calibration Controls -->
+        <div class="flex flex-wrap items-center gap-1.5 sm:gap-2 pointer-events-auto">
+            <!-- Calibrate Scale Button -->
+            <button id="calibrate-btn" class="glass-panel hover:bg-slate-800/90 active:scale-95 transition px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 text-cyan-300 border-cyan-500/30">
+                <i class="fa-solid fa-ruler-combined"></i>
+                <span class="hidden sm:inline">Calibrate Scale</span>
+                <span class="sm:hidden">Scale</span>
+            </button>
+
+            <!-- Virtual Tape Measure Toggle -->
+            <button id="tape-measure-toggle" class="glass-panel hover:bg-slate-800/90 active:scale-95 transition px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 text-slate-200">
+                <i class="fa-solid fa-ruler"></i>
+                <span>Ruler</span>
+            </button>
+
+            <!-- Grid Snap Toggle -->
+            <button id="snap-toggle" class="glass-panel hover:bg-slate-800/90 active:scale-95 transition px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 text-slate-200">
+                <i id="snap-icon" class="fa-solid fa-magnet"></i>
+                <span class="hidden md:inline">Snap</span>
+            </button>
+
+            <!-- Multi-Select Toggle (Touch/Mouse alternative to D-Pad Up) -->
+            <button id="multiselect-toggle" class="glass-panel hover:bg-slate-800/90 active:scale-95 transition px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 text-slate-200">
+                <i class="fa-solid fa-object-group"></i>
+                <span id="multiselect-label">Multi-Select</span>
+            </button>
+
+            <!-- WebXR AR Button Container -->
+            <div id="ar-button-container"></div>
+
+            <!-- VR / Real-World Scale Inspection Mode Toggle -->
+            <button id="vr-inspect-btn" class="glass-panel hover:bg-purple-600/30 active:scale-95 transition px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 text-purple-300 border-purple-500/30">
+                <i class="fa-solid fa-eye"></i>
+                <span id="vr-inspect-label">Inspect Scale</span>
+            </button>
+
+            <!-- Export OBJ Button -->
+            <button id="export-obj-btn" class="glass-panel hover:bg-emerald-600/30 active:scale-95 transition px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 text-emerald-300 border-emerald-500/30">
+                <i class="fa-solid fa-file-export"></i>
+                <span class="hidden sm:inline">Export .OBJ</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- VR / Scale Comparison Overlay Banner (Visible in Inspect Scale Mode) -->
+    <div id="inspect-mode-panel" class="hidden fixed top-20 left-1/2 -translate-x-1/2 z-30 glass-panel rounded-2xl p-3 border border-purple-500/40 flex flex-wrap items-center justify-center gap-2 pointer-events-auto max-w-[95vw]">
+        <div class="flex items-center gap-2 pr-2 border-r border-slate-700">
+            <span class="w-2.5 h-2.5 rounded-full bg-purple-400 animate-pulse"></span>
+            <span class="text-xs font-bold text-white">1:1 Scale Inspection</span>
+        </div>
+
+        <!-- Real-World Comparison Prop Selector -->
+        <div class="flex items-center gap-1.5">
+            <label for="ref-prop-select" class="text-[11px] text-slate-300 font-semibold">Compare to:</label>
+            <select id="ref-prop-select" class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-cyan-300 font-semibold focus:outline-none focus:border-purple-400">
+                <option value="none">Nothing (Model Only)</option>
+                <option value="credit_card" selected>Credit Card (8.56 × 5.4 cm)</option>
+                <option value="soda_can">Soda Can (12.2 × 6.6 cm)</option>
+                <option value="aa_battery">AA Battery (5.05 × 1.45 cm)</option>
+                <option value="smartphone">Smartphone (14.7 × 7.1 cm)</option>
+                <option value="banana">Standard Banana (~18 cm)</option>
+            </select>
+        </div>
+
+        <!-- Enter Headset VR Button (Shown if WebXR VR supported) -->
+        <button id="enter-headset-vr-btn" class="hidden bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-lg transition">
+            <i class="fa-solid fa-vr-cardboard"></i>
+            <span>View in VR Headset</span>
+        </button>
+
+        <!-- Exit Inspection Mode -->
+        <button id="exit-inspect-btn" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold transition">
+            Exit Preview
+        </button>
+    </div>
+
+    <!-- Left Panel: Precision Dimensions & CSG Hole/Group Inspector -->
+    <aside id="left-inspector-panel" class="fixed left-2.5 sm:left-4 top-20 sm:top-24 z-20 w-64 sm:w-72 pointer-events-none flex flex-col gap-2.5 max-h-[calc(100vh-11rem)] overflow-y-auto transition-opacity duration-200">
+        <!-- Live Position & Dimension HUD -->
+        <div class="glass-panel rounded-2xl p-3 pointer-events-auto">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-[11px] font-bold uppercase tracking-wider text-cyan-400">Live Telemetry</span>
+                <span id="selection-badge" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">Cursor Active</span>
+            </div>
+
+            <!-- Real-time Coordinates -->
+            <div class="grid grid-cols-3 gap-1.5 text-center font-mono text-xs mb-2.5">
+                <div class="glass-panel-light rounded-lg py-1.5 px-1">
+                    <div class="text-[9px] text-slate-400">X (<span class="unit-label-text">cm</span>)</div>
+                    <div id="pos-x" class="font-bold text-rose-400">0.00</div>
+                </div>
+                <div class="glass-panel-light rounded-lg py-1.5 px-1">
+                    <div class="text-[9px] text-slate-400">Y (<span class="unit-label-text">cm</span>)</div>
+                    <div id="pos-y" class="font-bold text-emerald-400">0.50</div>
+                </div>
+                <div class="glass-panel-light rounded-lg py-1.5 px-1">
+                    <div class="text-[9px] text-slate-400">Z (<span class="unit-label-text">cm</span>)</div>
+                    <div id="pos-z" class="font-bold text-sky-400">0.00</div>
+                </div>
+            </div>
+
+            <!-- Direct Dimension Input (Width / Height / Depth) -->
+            <div class="space-y-1.5">
+                <div class="flex items-center justify-between text-[10px] text-slate-400">
+                    <span>Dimensions (<span class="unit-label-text">cm</span>)</span>
+                    <button id="apply-dims-btn" class="text-cyan-400 hover:text-cyan-300 font-semibold underline">Apply Size</button>
+                </div>
+                <div class="grid grid-cols-3 gap-1.5 font-mono">
+                    <div>
+                        <label class="block text-[10px] text-slate-400 mb-0.5">Width (X)</label>
+                        <input id="dim-w" type="number" step="0.1" value="1.00" class="w-full bg-slate-900/90 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-400">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] text-slate-400 mb-0.5">Height (Y)</label>
+                        <input id="dim-h" type="number" step="0.1" value="1.00" class="w-full bg-slate-900/90 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-400">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] text-slate-400 mb-0.5">Depth (Z)</label>
+                        <input id="dim-d" type="number" step="0.1" value="1.00" class="w-full bg-slate-900/90 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-400">
+                    </div>
+                </div>
+            </div>
+
+            <!-- CSG Solid / Hole & Grouping Controls -->
+            <div id="object-inspector" class="mt-3 pt-2.5 border-t border-slate-700/60 space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Object State & CSG</span>
+                    <span id="selected-count-label" class="text-[11px] font-mono text-cyan-400">0 Selected</span>
+                </div>
+
+                <!-- Solid vs Hole Switch -->
+                <div class="grid grid-cols-2 gap-1.5 bg-slate-900/90 p-1 rounded-xl border border-slate-700/70">
+                    <button id="state-solid-btn" class="py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 bg-indigo-600 text-white transition">
+                        <span class="w-2.5 h-2.5 rounded-full bg-cyan-300"></span> Solid
+                    </button>
+                    <button id="state-hole-btn" class="py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 text-slate-400 hover:text-white transition">
+                        <span class="w-2.5 h-2.5 rounded-full border border-dashed border-amber-400"></span> Hole
+                    </button>
+                </div>
+
+                <!-- CSG Group / Subtract Action -->
+                <button id="group-csg-btn" disabled class="w-full py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 text-white shadow-lg transition">
+                    <i class="fa-solid fa-object-ungroup"></i>
+                    <span id="group-btn-text">Group / Cut Holes (Select 2+)</span>
+                </button>
+
+                <!-- Quick Object Actions -->
+                <div class="grid grid-cols-3 gap-1.5 pt-1">
+                    <button id="gizmo-mode-btn" class="glass-panel-light hover:bg-slate-700/80 py-1.5 px-2 rounded-lg text-[11px] font-semibold text-slate-200 flex items-center justify-center gap-1" title="Toggle 3D Move Arrows">
+                        <i class="fa-solid fa-arrows-up-down-left-right text-cyan-400"></i> Gizmo
+                    </button>
+                    <button id="duplicate-btn" class="glass-panel-light hover:bg-slate-700/80 py-1.5 px-2 rounded-lg text-[11px] font-semibold text-slate-200 flex items-center justify-center gap-1" title="Duplicate Selected">
+                        <i class="fa-solid fa-clone text-indigo-400"></i> Clone
+                    </button>
+                    <button id="clear-all-btn" class="glass-panel-light hover:bg-rose-900/50 py-1.5 px-2 rounded-lg text-[11px] font-semibold text-rose-300 flex items-center justify-center gap-1" title="Clear Workspace">
+                        <i class="fa-solid fa-trash"></i> Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ruler Distance Card (Visible when Ruler Active) -->
+        <div id="ruler-hud" class="hidden glass-panel rounded-2xl p-3 pointer-events-auto border-amber-500/40">
+            <div class="flex items-center justify-between mb-1">
+                <span class="text-[11px] font-bold uppercase text-amber-400 flex items-center gap-1.5">
+                    <i class="fa-solid fa-ruler"></i> Virtual Laser Ruler
+                </span>
+                <button id="clear-ruler-btn" class="text-[10px] text-slate-400 hover:text-white underline">Reset</button>
+            </div>
+            <div id="ruler-distance-val" class="text-lg font-mono font-bold text-white">0.00 cm</div>
+            <p id="ruler-instruction" class="text-[11px] text-slate-300 mt-0.5">Click or press [A] to place Point A</p>
+        </div>
+    </aside>
+
+    <!-- Right Panel: Xbox Controller Mapping Guide (Collapsible) -->
+    <aside id="right-controller-panel" class="hidden lg:block fixed right-4 top-24 z-20 w-64 glass-panel rounded-2xl p-3.5 pointer-events-auto transition-opacity duration-200">
+        <div class="flex items-center justify-between mb-2">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+                <i class="fa-brands fa-xbox"></i> Xbox Controller Map
+            </span>
+        </div>
+        <div class="space-y-1.5 text-[11px] text-slate-300">
+            <div class="flex justify-between"><span class="text-slate-400">Left Stick</span> <span class="font-mono text-white">Move X / Z</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Right Stick</span> <span class="font-mono text-white">Height Y / Orbit</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">LB / RB</span> <span class="font-mono text-white">Uniform Scale</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">LT / RT</span> <span class="font-mono text-white">Height Scale</span></div>
+            <div class="border-t border-slate-700/60 my-1.5"></div>
+            <div class="flex justify-between"><span class="font-bold text-emerald-400">[A] Button</span> <span class="font-mono text-white">Place Part / Ruler</span></div>
+            <div class="flex justify-between"><span class="font-bold text-rose-400">[B] Button</span> <span class="font-mono text-white">Delete Selected</span></div>
+            <div class="flex justify-between"><span class="font-bold text-sky-400">[X] Button</span> <span class="font-mono text-white">Cycle Shape</span></div>
+            <div class="flex justify-between"><span class="font-bold text-amber-400">[Y] Button</span> <span class="font-mono text-white">Toggle Snap Grid</span></div>
+            <div class="border-t border-slate-700/60 my-1.5"></div>
+            <div class="flex justify-between"><span class="font-bold text-purple-400">D-Pad Up</span> <span class="font-mono text-white">Multi-Select Part</span></div>
+            <div class="flex justify-between"><span class="font-bold text-amber-300">D-Pad Down</span> <span class="font-mono text-white">Solid / Hole</span></div>
+            <div class="flex justify-between"><span class="font-bold text-emerald-300">D-Pad Right</span> <span class="font-mono text-white">Group / Cut CSG</span></div>
+            <div class="flex justify-between"><span class="font-bold text-slate-400">D-Pad Left</span> <span class="font-mono text-white">Clear Selection</span></div>
+        </div>
+    </aside>
+
+    <!-- Bottom Toolbar: Primitive Shapes & Spawn Action -->
+    <footer id="bottom-toolbar-panel" class="fixed bottom-3 sm:bottom-5 left-1/2 -translate-x-1/2 z-20 pointer-events-auto w-[94%] max-w-lg transition-opacity duration-200">
+        <div class="glass-panel rounded-2xl p-2 flex items-center justify-between gap-2">
+            <!-- Primitive Selectors -->
+            <div class="flex items-center gap-1 bg-slate-900/80 p-1 rounded-xl">
+                <button id="tool-box" class="tool-btn active bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition">
+                    <i class="fa-solid fa-cube"></i>
+                    <span>Box</span>
+                </button>
+                <button id="tool-cylinder" class="tool-btn text-slate-300 hover:text-white px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition">
+                    <i class="fa-solid fa-database"></i>
+                    <span>Cylinder</span>
+                </button>
+                <button id="tool-sphere" class="tool-btn text-slate-300 hover:text-white px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition">
+                    <i class="fa-solid fa-circle"></i>
+                    <span>Sphere</span>
+                </button>
+            </div>
+
+            <!-- Primary Spawn / Place Action Button -->
+            <button id="spawn-btn-touch" class="flex-1 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 active:scale-95 text-white font-bold py-2.5 px-4 rounded-xl text-xs sm:text-sm shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2 transition">
+                <i class="fa-solid fa-plus"></i>
+                <span>Place Object [A]</span>
+            </button>
+        </div>
+    </footer>
+
+    <!-- Real-World Scale Calibration Modal -->
+    <div id="calibration-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-200">
+        <div class="glass-panel rounded-3xl max-w-md w-full p-6 border border-cyan-500/30">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-10 h-10 rounded-2xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-lg">
+                    <i class="fa-solid fa-ruler-combined"></i>
+                </div>
+                <div>
+                    <h2 class="text-lg font-bold text-white">Real-World Scale Calibration</h2>
+                    <p class="text-xs text-slate-400">Match 1 digital grid unit to a physical measurement</p>
+                </div>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1.5">Measurement Unit</label>
+                    <select id="unit-type-select" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-400">
+                        <option value="cm" selected>Centimeters (cm)</option>
+                        <option value="mm">Millimeters (mm)</option>
+                        <option value="in">Inches (in)</option>
+                        <option value="m">Meters (m)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1.5">1 Grid Cube Equals:</label>
+                    <div class="relative">
+                        <input id="unit-scale-input" type="number" step="0.1" value="1.0" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono text-white focus:outline-none focus:border-cyan-400">
+                        <span id="unit-label-suffix" class="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-mono text-cyan-400 font-bold">cm</span>
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-1.5">Tip: Place a physical ruler or credit card in AR view and match the 3D cursor cube to its real-world size.</p>
+                </div>
+
+                <div class="flex justify-end gap-2 pt-2">
+                    <button id="close-modal-btn" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 transition">Cancel</button>
+                    <button id="save-calibration-btn" class="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-500 to-indigo-600 text-white shadow-lg transition">Save Scale</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Toast Notification -->
+    <div id="toast" class="fixed top-20 left-1/2 -translate-x-1/2 z-50 glass-panel border-cyan-500/40 px-4 py-2 rounded-full text-xs font-semibold text-white shadow-xl opacity-0 -translate-y-4 pointer-events-none transition-all duration-200 flex items-center gap-2">
+        <i class="fa-solid fa-circle-info text-cyan-400"></i>
+        <span id="toast-message">Ready</span>
+    </div>
+
+    <script>
+        // --- Application State ---
+        const state = {
+            scaleUnit: 'cm',
+            unitRatio: 1.0,
+            selectedPrimitive: 'box',
+            cursorPos: new THREE.Vector3(0, 0.5, 0),
+            cursorScale: new THREE.Vector3(1, 1, 1),
+            snapToGrid: false,
+            gridSnapStep: 0.1,
+            rulerMode: false,
+            rulerPoints: [],
+            objects: [],
+            selectedObjects: [],
+            selectedObject: null,
+            multiSelectMode: false,
+            inspectMode: false,
+            prevButtons: {}
+        };
+
+        // --- Three.js Core Variables ---
+        let scene, camera, renderer, controls, transformControls;
+        let cursorGroup3D, cursorMesh, cursorWireframe;
+        let gridHelper, fineGrid, reticleMesh, referencePropGroup;
+        let hitTestSource = null;
+        let hitTestSourceRequested = false;
+        let selectionHelpers = [];
+        let rulerMarkers = [];
+        let rulerLine = null;
+
+        // DOM Elements
+        const container = document.getElementById('canvas-container');
+        const modal = document.getElementById('calibration-modal');
+        const calibrateBtn = document.getElementById('calibrate-btn');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        const saveCalibrationBtn = document.getElementById('save-calibration-btn');
+        const unitTypeSelect = document.getElementById('unit-type-select');
+        const unitScaleInput = document.getElementById('unit-scale-input');
+        const unitLabelSuffix = document.getElementById('unit-label-suffix');
+        const unitDisplayHeader = document.getElementById('unit-display-header');
+        const tapeMeasureToggle = document.getElementById('tape-measure-toggle');
+        const snapToggle = document.getElementById('snap-toggle');
+        const snapIcon = document.getElementById('snap-icon');
+        const multiselectToggle = document.getElementById('multiselect-toggle');
+        const stateSolidBtn = document.getElementById('state-solid-btn');
+        const stateHoleBtn = document.getElementById('state-hole-btn');
+        const groupCsgBtn = document.getElementById('group-csg-btn');
+        const groupBtnText = document.getElementById('group-btn-text');
+        const gizmoModeBtn = document.getElementById('gizmo-mode-btn');
+        const duplicateBtn = document.getElementById('duplicate-btn');
+        const clearAllBtn = document.getElementById('clear-all-btn');
+        const vrInspectBtn = document.getElementById('vr-inspect-btn');
+        const inspectModePanel = document.getElementById('inspect-mode-panel');
+        const refPropSelect = document.getElementById('ref-prop-select');
+        const enterHeadsetVrBtn = document.getElementById('enter-headset-vr-btn');
+        const exitInspectBtn = document.getElementById('exit-inspect-btn');
+
+        // Striped Translucent Texture for Hole Cutters
+        function createHoleMaterial() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = 'rgba(245, 158, 11, 0.28)';
+            ctx.fillRect(0, 0, 64, 64);
+            ctx.strokeStyle = 'rgba(251, 191, 36, 0.75)';
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(-16, 16); ctx.lineTo(16, -16);
+            ctx.moveTo(0, 64); ctx.lineTo(64, 0);
+            ctx.moveTo(48, 80); ctx.lineTo(80, 48);
+            ctx.stroke();
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(3, 3);
+
+            return new THREE.MeshStandardMaterial({
+                map: tex,
+                color: 0xfbbf24,
+                transparent: true,
+                opacity: 0.55,
+                roughness: 0.3,
+                depthWrite: false
+            });
+        }
+
+        const holeMaterial = createHoleMaterial();
+
+        // --- Initialize 3D Engine & WebXR ---
+        function initEngine() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x090d16);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 100);
+            camera.position.set(3.2, 2.8, 3.8);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Lighting Setup
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+            dirLight.position.set(5, 10, 7);
+            scene.add(dirLight);
+
+            const backLight = new THREE.DirectionalLight(0x38bdf8, 0.35);
+            backLight.position.set(-5, 3, -5);
+            scene.add(backLight);
+
+            // Reference Measurement Grid (10x10 units, 1 unit subdivisions)
+            gridHelper = new THREE.GridHelper(10, 10, 0x38bdf8, 0x1e293b);
+            scene.add(gridHelper);
+
+            // Sub-grid (0.1 unit precision lines)
+            fineGrid = new THREE.GridHelper(10, 100, 0x1e293b, 0x0f172a);
+            fineGrid.position.y = -0.001;
+            scene.add(fineGrid);
+
+            // Real-World Reference Prop Group (for 1:1 Scale Comparison)
+            referencePropGroup = new THREE.Group();
+            scene.add(referencePropGroup);
+
+            // OrbitControls for Touch / Mouse
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.06;
+            controls.target.set(0, 0.5, 0);
+
+            // TransformControls Gizmo for Fine Object Positioning
+            transformControls = new THREE.TransformControls(camera, renderer.domElement);
+            transformControls.addEventListener('dragging-changed', (event) => {
+                controls.enabled = !event.value;
+            });
+            transformControls.addEventListener('change', () => {
+                if (state.selectedObject && state.snapToGrid) {
+                    const step = state.gridSnapStep;
+                    state.selectedObject.position.x = Math.round(state.selectedObject.position.x / step) * step;
+                    state.selectedObject.position.y = Math.round(state.selectedObject.position.y / step) * step;
+                    state.selectedObject.position.z = Math.round(state.selectedObject.position.z / step) * step;
+                }
+                updateMeasurementHUD();
+            });
+            scene.add(transformControls);
+
+            // 3D Builder Cursor Preview
+            cursorGroup3D = new THREE.Group();
+            cursorGroup3D.position.copy(state.cursorPos);
+            scene.add(cursorGroup3D);
+            updateCursorShape();
+
+            // AR Hit-Test Reticle
+            const reticleGeo = new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2);
+            const reticleMat = new THREE.MeshBasicMaterial({ color: 0x22d3ee });
+            reticleMesh = new THREE.Mesh(reticleGeo, reticleMat);
+            reticleMesh.matrixAutoUpdate = false;
+            reticleMesh.visible = false;
+            scene.add(reticleMesh);
+
+            setupWebXRButton();
+            setupPointerSelection();
+            updateMeasurementHUD();
+
+            window.addEventListener('resize', onWindowResize);
+            renderer.setAnimationLoop(animate);
+        }
+
+        // --- Setup WebXR AR & VR Session Buttons (If Supported on Device) ---
+        function setupWebXRButton() {
+            if ('xr' in navigator) {
+                navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+                    if (supported) {
+                        const arBtn = document.createElement('button');
+                        arBtn.className = 'glass-panel bg-cyan-600/30 hover:bg-cyan-500/40 border-cyan-400/50 px-3 py-2 rounded-xl text-xs font-bold text-cyan-200 flex items-center gap-1.5 transition';
+                        arBtn.innerHTML = '<i class="fa-solid fa-camera"></i><span>AR Mode</span>';
+                        arBtn.onclick = async () => {
+                            try {
+                                const session = await navigator.xr.requestSession('immersive-ar', {
+                                    requiredFeatures: ['hit-test'],
+                                    optionalFeatures: ['dom-overlay'],
+                                    domOverlay: { root: document.body }
+                                });
+                                renderer.xr.setReferenceSpaceType('local');
+                                await renderer.xr.setSession(session);
+                                scene.background = null; // Transparent background for camera passthrough
+                                showToast('AR Passthrough Started! Point at a surface.');
+                            } catch (err) {
+                                showToast('AR Session unavailable on this browser.');
+                            }
+                        };
+                        document.getElementById('ar-button-container').appendChild(arBtn);
+                    }
+                });
+
+                // Check VR Headset Support for 1:1 Scale Viewing
+                navigator.xr.isSessionSupported('immersive-vr').then((vrSupported) => {
+                    if (vrSupported) {
+                        enterHeadsetVrBtn.classList.remove('hidden');
+                        enterHeadsetVrBtn.onclick = async () => {
+                            try {
+                                const session = await navigator.xr.requestSession('immersive-vr', {
+                                    optionalFeatures: ['local-floor', 'bounded-floor']
+                                });
+                                renderer.xr.setReferenceSpaceType('local-floor');
+                                await renderer.xr.setSession(session);
+                                showToast('Entered 1:1 VR Inspection Mode!');
+                            } catch (err) {
+                                showToast('Could not start VR headset session.');
+                            }
+                        };
+                    }
+                });
+            }
+        }
+
+        // --- Convert Real Centimeters to Current Scene Units ---
+        function cmToSceneUnits(cmValue) {
+            let valueInUserUnit = cmValue;
+            if (state.scaleUnit === 'mm') valueInUserUnit = cmValue * 10;
+            else if (state.scaleUnit === 'in') valueInUserUnit = cmValue / 2.54;
+            else if (state.scaleUnit === 'm') valueInUserUnit = cmValue / 100;
+            return valueInUserUnit / state.unitRatio;
+        }
+
+        // --- Build 1:1 Real-World Comparison Prop Next to Object ---
+        function updateReferenceProp(propType) {
+            while (referencePropGroup.children.length > 0) {
+                referencePropGroup.remove(referencePropGroup.children[0]);
+            }
+            if (!state.inspectMode || propType === 'none') return;
+
+            // Find bounding box of user's object(s) so we place the comparison item right beside it
+            const modelBox = new THREE.Box3();
+            const solidObjects = state.objects.filter(o => !o.userData.isHole);
+            if (solidObjects.length > 0) {
+                solidObjects.forEach(o => modelBox.expandByObject(o));
+            } else {
+                modelBox.setFromCenterAndSize(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(1, 1, 1));
+            }
+            const modelMaxX = modelBox.max.x;
+            const modelMinY = Math.max(0, modelBox.min.y);
+            const gap = cmToSceneUnits(2.0); // 2cm gap beside user's object
+
+            let propMesh;
+            if (propType === 'credit_card') {
+                // Standard ISO ID-1 Credit Card: 8.56cm x 5.398cm x 0.08cm
+                const w = cmToSceneUnits(8.56);
+                const h = cmToSceneUnits(5.40);
+                const d = cmToSceneUnits(0.12);
+                const geo = new THREE.BoxGeometry(w, h, d);
+                const mat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.25, metalness: 0.6 });
+                propMesh = new THREE.Mesh(geo, mat);
+
+                // Magnetic stripe & EMV chip detail for instant recognition
+                const stripe = new THREE.Mesh(
+                    new THREE.BoxGeometry(w * 0.98, h * 0.16, d * 1.1),
+                    new THREE.MeshBasicMaterial({ color: 0x090d16 })
+                );
+                stripe.position.y = h * 0.25;
+                propMesh.add(stripe);
+
+                const chip = new THREE.Mesh(
+                    new THREE.BoxGeometry(w * 0.16, h * 0.2, d * 1.15),
+                    new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.8, roughness: 0.2 })
+                );
+                chip.position.set(-w * 0.28, 0.02 * h, 0);
+                propMesh.add(chip);
+
+                propMesh.position.set(modelMaxX + gap + w / 2, modelMinY + h / 2, 0);
+            } else if (propType === 'soda_can') {
+                // Standard 330ml/12oz Soda Can: 12.2cm tall, 6.6cm diameter
+                const r = cmToSceneUnits(6.6 / 2);
+                const h = cmToSceneUnits(12.2);
+                const geo = new THREE.CylinderGeometry(r, r, h, 32);
+                const mat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.25, metalness: 0.5 });
+                propMesh = new THREE.Mesh(geo, mat);
+
+                const lid = new THREE.Mesh(
+                    new THREE.CylinderGeometry(r * 0.92, r * 0.98, h * 0.04, 32),
+                    new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.85, roughness: 0.2 })
+                );
+                lid.position.y = h / 2;
+                propMesh.add(lid);
+
+                propMesh.position.set(modelMaxX + gap + r, modelMinY + h / 2, 0);
+            } else if (propType === 'aa_battery') {
+                // Standard AA Battery: 5.05cm tall, 1.45cm diameter
+                const r = cmToSceneUnits(1.45 / 2);
+                const h = cmToSceneUnits(5.05);
+                const geo = new THREE.CylinderGeometry(r, r, h, 24);
+                const mat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.3, metalness: 0.4 });
+                propMesh = new THREE.Mesh(geo, mat);
+
+                const topCap = new THREE.Mesh(
+                    new THREE.CylinderGeometry(r * 0.4, r * 0.4, h * 0.05, 16),
+                    new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.8 })
+                );
+                topCap.position.y = h / 2 + h * 0.02;
+                propMesh.add(topCap);
+
+                propMesh.position.set(modelMaxX + gap + r, modelMinY + h / 2, 0);
+            } else if (propType === 'smartphone') {
+                // Standard Smartphone: 14.7cm x 7.1cm x 0.8cm
+                const w = cmToSceneUnits(7.1);
+                const h = cmToSceneUnits(14.7);
+                const d = cmToSceneUnits(0.8);
+                const geo = new THREE.BoxGeometry(w, h, d);
+                const mat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.15, metalness: 0.7 });
+                propMesh = new THREE.Mesh(geo, mat);
+
+                const screen = new THREE.Mesh(
+                    new THREE.PlaneGeometry(w * 0.92, h * 0.94),
+                    new THREE.MeshBasicMaterial({ color: 0x1e293b })
+                );
+                screen.position.z = d / 2 + 0.001;
+                propMesh.add(screen);
+
+                propMesh.position.set(modelMaxX + gap + w / 2, modelMinY + h / 2, 0);
+            } else if (propType === 'banana') {
+                // Curved Banana (~18cm arc) for universal scale sense
+                const curve = new THREE.CatmullRomCurve3([
+                    new THREE.Vector3(0, 0, 0),
+                    new THREE.Vector3(cmToSceneUnits(2.5), cmToSceneUnits(6), 0),
+                    new THREE.Vector3(cmToSceneUnits(2.2), cmToSceneUnits(12), 0),
+                    new THREE.Vector3(0, cmToSceneUnits(17.5), 0)
+                ]);
+                const geo = new THREE.TubeGeometry(curve, 20, cmToSceneUnits(1.6), 12, false);
+                const mat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.45 });
+                propMesh = new THREE.Mesh(geo, mat);
+                propMesh.position.set(modelMaxX + gap + cmToSceneUnits(2), modelMinY + cmToSceneUnits(1.6), 0);
+            }
+
+            if (propMesh) {
+                referencePropGroup.add(propMesh);
+            }
+        }
+
+        // --- Toggle 1:1 VR / Studio Scale Inspection Mode ---
+        function setInspectMode(enabled) {
+            state.inspectMode = enabled;
+            const leftPanel = document.getElementById('left-inspector-panel');
+            const rightPanel = document.getElementById('right-controller-panel');
+            const bottomPanel = document.getElementById('bottom-toolbar-panel');
+
+            if (enabled) {
+                // Hide builder tools, cursor, gizmos, and holes so user sees ONLY their finished object
+                cursorGroup3D.visible = false;
+                transformControls.detach();
+                selectionHelpers.forEach(h => h.visible = false);
+                state.objects.forEach(obj => {
+                    if (obj.userData.isHole) obj.visible = false;
+                });
+
+                leftPanel.classList.add('opacity-0', 'pointer-events-none');
+                rightPanel.classList.add('opacity-0', 'pointer-events-none');
+                bottomPanel.classList.add('opacity-0', 'pointer-events-none');
+                inspectModePanel.classList.remove('hidden');
+                vrInspectBtn.classList.add('bg-purple-600', 'text-white');
+
+                updateReferenceProp(refPropSelect.value);
+
+                // Frame camera neatly around the object + comparison prop
+                const targetObj = state.selectedObject || state.objects.find(o => !o.userData.isHole);
+                if (targetObj) {
+                    const box = new THREE.Box3().setFromObject(targetObj);
+                    const center = new THREE.Vector3();
+                    box.getCenter(center);
+                    controls.target.copy(center);
+                }
+
+                showToast('1:1 Scale Inspection Mode: Compare your object to real-world items');
+            } else {
+                // Restore full CAD builder workspace
+                cursorGroup3D.visible = true;
+                selectionHelpers.forEach(h => h.visible = true);
+                state.objects.forEach(obj => {
+                    obj.visible = true;
+                });
+
+                leftPanel.classList.remove('opacity-0', 'pointer-events-none');
+                rightPanel.classList.remove('opacity-0', 'pointer-events-none');
+                bottomPanel.classList.remove('opacity-0', 'pointer-events-none');
+                inspectModePanel.classList.add('hidden');
+                vrInspectBtn.classList.remove('bg-purple-600', 'text-white');
+
+                updateReferenceProp('none');
+                showToast('Returned to Builder Mode');
+            }
+        }
+
+        // --- Build Primitive Geometry ---
+        function createGeometryForType(type) {
+            switch (type) {
+                case 'cylinder':
+                    return new THREE.CylinderGeometry(0.5, 0.5, 1, 32);
+                case 'sphere':
+                    return new THREE.SphereGeometry(0.5, 32, 24);
+                case 'box':
+                default:
+                    return new THREE.BoxGeometry(1, 1, 1);
+            }
+        }
+
+        // --- Update 3D Cursor Preview ---
+        function updateCursorShape() {
+            while (cursorGroup3D.children.length > 0) {
+                cursorGroup3D.remove(cursorGroup3D.children[0]);
+            }
+            const geo = createGeometryForType(state.selectedPrimitive);
+            const mat = new THREE.MeshStandardMaterial({
+                color: 0x38bdf8,
+                transparent: true,
+                opacity: 0.35,
+                roughness: 0.2
+            });
+            cursorMesh = new THREE.Mesh(geo, mat);
+
+            const edges = new THREE.EdgesGeometry(geo);
+            cursorWireframe = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x7dd3fc }));
+
+            cursorGroup3D.add(cursorMesh);
+            cursorGroup3D.add(cursorWireframe);
+            cursorGroup3D.scale.copy(state.cursorScale);
+            updateMeasurementHUD();
+        }
+
+        // --- Spawn Solid Object at 3D Cursor ---
+        function spawnObjectAtCursor() {
+            if (state.rulerMode) {
+                addRulerPoint(cursorGroup3D.position.clone());
+                return;
+            }
+
+            const geo = createGeometryForType(state.selectedPrimitive);
+            const palette = [0x6366f1, 0x06b6d4, 0x10b981, 0x8b5cf6, 0xec4899, 0x3b82f6];
+            const color = palette[state.objects.length % palette.length];
+
+            const solidMat = new THREE.MeshStandardMaterial({
+                color: color,
+                roughness: 0.35,
+                metalness: 0.1
+            });
+
+            const mesh = new THREE.Mesh(geo, solidMat);
+            mesh.position.copy(cursorGroup3D.position);
+            mesh.scale.copy(cursorGroup3D.scale);
+            mesh.userData = {
+                type: state.selectedPrimitive,
+                isHole: false,
+                solidMaterial: solidMat
+            };
+
+            scene.add(mesh);
+            state.objects.push(mesh);
+            selectObject(mesh, false);
+            showToast(`Placed ${state.selectedPrimitive.toUpperCase()}`);
+        }
+
+        // --- Selection & Multi-Selection Management ---
+        function selectObject(mesh, additive = false) {
+            if (!mesh) {
+                state.selectedObjects = [];
+                state.selectedObject = null;
+                transformControls.detach();
+            } else if (additive || state.multiSelectMode) {
+                const idx = state.selectedObjects.indexOf(mesh);
+                if (idx > -1) {
+                    state.selectedObjects.splice(idx, 1);
+                } else {
+                    state.selectedObjects.push(mesh);
+                }
+                state.selectedObject = state.selectedObjects[state.selectedObjects.length - 1] || null;
+            } else {
+                state.selectedObjects = [mesh];
+                state.selectedObject = mesh;
+            }
+
+            // Refresh Bounding Box Selection Outlines
+            selectionHelpers.forEach(h => scene.remove(h));
+            selectionHelpers = [];
+
+            state.selectedObjects.forEach((obj) => {
+                const helperColor = obj.userData.isHole ? 0xfbbf24 : 0x22d3ee;
+                const boxHelper = new THREE.BoxHelper(obj, helperColor);
+                scene.add(boxHelper);
+                selectionHelpers.push(boxHelper);
+            });
+
+            if (state.selectedObject && transformControls.object) {
+                transformControls.attach(state.selectedObject);
+            } else if (!state.selectedObject) {
+                transformControls.detach();
+            }
+
+            updateInspectorUI();
+            updateMeasurementHUD();
+        }
+
+        // --- Toggle Selected Object(s) Between Solid and Hole ---
+        function setObjectHoleState(makeHole) {
+            if (state.selectedObjects.length === 0) {
+                showToast('Select an object first!');
+                return;
+            }
+
+            state.selectedObjects.forEach(obj => {
+                obj.userData.isHole = makeHole;
+                if (makeHole) {
+                    obj.material = holeMaterial;
+                } else {
+                    obj.material = obj.userData.solidMaterial;
+                }
+            });
+
+            // Re-render selection helpers with updated colors
+            const current = [...state.selectedObjects];
+            state.selectedObjects = [];
+            current.forEach(o => selectObject(o, true));
+
+            showToast(makeHole ? 'Converted to HOLE (Cutter)' : 'Converted to SOLID');
+        }
+
+        // --- Constructive Solid Geometry (CSG) Group & Hole Subtraction ---
+        function performCSGGroup() {
+            if (state.selectedObjects.length < 2) {
+                showToast('Select 2 or more objects to Group / Cut!');
+                return;
+            }
+
+            // Check if CSG library loaded properly
+            const CSG = (window.exports && window.exports.CSG) || window.CSG || (window.THREE && window.THREE.CSG);
+            if (!CSG || typeof CSG.fromMesh !== 'function') {
+                showToast('CSG Engine initializing, please try again.');
+                return;
+            }
+
+            try {
+                const solids = state.selectedObjects.filter(o => !o.userData.isHole);
+                const holes = state.selectedObjects.filter(o => o.userData.isHole);
+
+                if (solids.length === 0) {
+                    showToast('Include at least one SOLID object to group!');
+                    return;
+                }
+
+                // Start with the first solid object
+                solids[0].updateMatrixWorld(true);
+                let resultCSG = CSG.fromMesh(solids[0]);
+                const baseMaterial = solids[0].userData.solidMaterial;
+
+                // Union all remaining solids
+                for (let i = 1; i < solids.length; i++) {
+                    solids[i].updateMatrixWorld(true);
+                    const nextCSG = CSG.fromMesh(solids[i]);
+                    resultCSG = resultCSG.union(nextCSG);
+                }
+
+                // Subtract all hole objects
+                for (let i = 0; i < holes.length; i++) {
+                    holes[i].updateMatrixWorld(true);
+                    const holeCSG = CSG.fromMesh(holes[i]);
+                    resultCSG = resultCSG.subtract(holeCSG);
+                }
+
+                // Convert resulting CSG back into a Three.js Mesh
+                const groupedMesh = CSG.toMesh(resultCSG, new THREE.Matrix4(), baseMaterial);
+                groupedMesh.userData = {
+                    type: 'CSG Group',
+                    isHole: false,
+                    solidMaterial: baseMaterial
+                };
+
+                // Remove original component meshes from scene
+                state.selectedObjects.forEach(oldObj => {
+                    scene.remove(oldObj);
+                    const idx = state.objects.indexOf(oldObj);
+                    if (idx > -1) state.objects.splice(idx, 1);
+                });
+
+                scene.add(groupedMesh);
+                state.objects.push(groupedMesh);
+                selectObject(groupedMesh, false);
+
+                showToast(holes.length > 0 ? `Carved ${holes.length} Hole(s) & Grouped!` : `Grouped ${solids.length} Solids!`);
+            } catch (err) {
+                console.error('CSG Boolean Error:', err);
+                showToast('Boolean operation failed—ensure shapes overlap.');
+            }
+        }
+
+        // --- Duplicate Selected Object ---
+        function duplicateSelectedObject() {
+            if (!state.selectedObject) {
+                showToast('Select an object to clone');
+                return;
+            }
+            const src = state.selectedObject;
+            const clonedGeo = src.geometry.clone();
+            const clonedMat = src.userData.solidMaterial.clone();
+            const clone = new THREE.Mesh(clonedGeo, src.userData.isHole ? holeMaterial : clonedMat);
+
+            clone.position.copy(src.position).add(new THREE.Vector3(0.25, 0, 0.25));
+            clone.rotation.copy(src.rotation);
+            clone.scale.copy(src.scale);
+            clone.userData = {
+                type: src.userData.type,
+                isHole: src.userData.isHole,
+                solidMaterial: clonedMat
+            };
+
+            scene.add(clone);
+            state.objects.push(clone);
+            selectObject(clone, false);
+            showToast('Cloned Object');
+        }
+
+        // --- Delete Selected Object(s) ---
+        function deleteSelectedObject() {
+            if (state.selectedObjects.length === 0) return;
+            state.selectedObjects.forEach(obj => {
+                scene.remove(obj);
+                const idx = state.objects.indexOf(obj);
+                if (idx > -1) state.objects.splice(idx, 1);
+            });
+            selectObject(null, false);
+            showToast('Deleted Selected');
+        }
+
+        // --- Update Inspector UI State ---
+        function updateInspectorUI() {
+            const count = state.selectedObjects.length;
+            document.getElementById('selected-count-label').innerText = `${count} Selected`;
+            document.getElementById('selection-badge').innerText = count > 0 ? `${count} Part(s) Selected` : 'Cursor Active';
+
+            if (count >= 2) {
+                groupCsgBtn.disabled = false;
+                const holeCount = state.selectedObjects.filter(o => o.userData.isHole).length;
+                groupBtnText.innerText = holeCount > 0 ? `Group & Cut (${count} Parts)` : `Group Solids (${count} Parts)`;
+            } else {
+                groupCsgBtn.disabled = true;
+                groupBtnText.innerText = 'Group / Cut Holes (Select 2+)';
+            }
+
+            if (state.selectedObject) {
+                const isHole = state.selectedObject.userData.isHole;
+                if (isHole) {
+                    stateHoleBtn.classList.add('bg-amber-500', 'text-slate-950');
+                    stateHoleBtn.classList.remove('text-slate-400');
+                    stateSolidBtn.classList.remove('bg-indigo-600', 'text-white');
+                    stateSolidBtn.classList.add('text-slate-400');
+                } else {
+                    stateSolidBtn.classList.add('bg-indigo-600', 'text-white');
+                    stateSolidBtn.classList.remove('text-slate-400');
+                    stateHoleBtn.classList.remove('bg-amber-500', 'text-slate-950');
+                    stateHoleBtn.classList.add('text-slate-400');
+                }
+            }
+        }
+
+        // --- Update Live Position & Real-Unit Dimension HUD ---
+        function updateMeasurementHUD() {
+            const target = state.selectedObject || cursorGroup3D;
+            if (!target) return;
+
+            document.getElementById('pos-x').innerText = (target.position.x * state.unitRatio).toFixed(2);
+            document.getElementById('pos-y').innerText = (target.position.y * state.unitRatio).toFixed(2);
+            document.getElementById('pos-z').innerText = (target.position.z * state.unitRatio).toFixed(2);
+
+            if (document.activeElement.tagName !== 'INPUT') {
+                // Compute real bounding size
+                const box = new THREE.Box3().setFromObject(target);
+                const size = new THREE.Vector3();
+                box.getSize(size);
+                document.getElementById('dim-w').value = Math.max(0.01, size.x * state.unitRatio).toFixed(2);
+                document.getElementById('dim-h').value = Math.max(0.01, size.y * state.unitRatio).toFixed(2);
+                document.getElementById('dim-d').value = Math.max(0.01, size.z * state.unitRatio).toFixed(2);
+            }
+        }
+
+        // Apply Direct Dimension Inputs
+        document.getElementById('apply-dims-btn').addEventListener('click', () => {
+            const target = state.selectedObject || cursorGroup3D;
+            const w = (parseFloat(document.getElementById('dim-w').value) || 1) / state.unitRatio;
+            const h = (parseFloat(document.getElementById('dim-h').value) || 1) / state.unitRatio;
+            const d = (parseFloat(document.getElementById('dim-d').value) || 1) / state.unitRatio;
+
+            target.scale.set(Math.max(0.02, w), Math.max(0.02, h), Math.max(0.02, d));
+            if (target === cursorGroup3D) {
+                state.cursorScale.copy(target.scale);
+            }
+            updateMeasurementHUD();
+            showToast(`Resized to ${(w * state.unitRatio).toFixed(2)} x ${(h * state.unitRatio).toFixed(2)} x ${(d * state.unitRatio).toFixed(2)} ${state.scaleUnit}`);
+        });
+
+        // --- Precision Virtual Laser Ruler ---
+        function toggleRulerMode() {
+            state.rulerMode = !state.rulerMode;
+            const hud = document.getElementById('ruler-hud');
+            if (state.rulerMode) {
+                tapeMeasureToggle.classList.add('bg-amber-500/30', 'border-amber-400', 'text-amber-300');
+                hud.classList.remove('hidden');
+                showToast('Ruler Mode ON: Tap 3D points or press [A]');
+            } else {
+                tapeMeasureToggle.classList.remove('bg-amber-500/30', 'border-amber-400', 'text-amber-300');
+                hud.classList.add('hidden');
+                clearRulerVisuals();
+            }
+        }
+
+        function addRulerPoint(point) {
+            if (state.rulerPoints.length >= 2) {
+                clearRulerVisuals();
+            }
+
+            state.rulerPoints.push(point.clone());
+            const markerGeo = new THREE.SphereGeometry(0.04, 16, 16);
+            const markerMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+            const marker = new THREE.Mesh(markerGeo, markerMat);
+            marker.position.copy(point);
+            scene.add(marker);
+            rulerMarkers.push(marker);
+
+            if (state.rulerPoints.length === 1) {
+                document.getElementById('ruler-instruction').innerText = 'Place Point B to measure distance';
+            } else if (state.rulerPoints.length === 2) {
+                const p1 = state.rulerPoints[0];
+                const p2 = state.rulerPoints[1];
+                const lineGeo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+                const lineMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, linewidth: 3 });
+                rulerLine = new THREE.Line(lineGeo, lineMat);
+                scene.add(rulerLine);
+
+                const dist = p1.distanceTo(p2) * state.unitRatio;
+                document.getElementById('ruler-distance-val').innerText = `${dist.toFixed(3)} ${state.scaleUnit}`;
+                document.getElementById('ruler-instruction').innerText = 'Click again to start a new measurement';
+            }
+        }
+
+        function clearRulerVisuals() {
+            rulerMarkers.forEach(m => scene.remove(m));
+            rulerMarkers = [];
+            if (rulerLine) {
+                scene.remove(rulerLine);
+                rulerLine = null;
+            }
+            state.rulerPoints = [];
+            document.getElementById('ruler-distance-val').innerText = `0.00 ${state.scaleUnit}`;
+            document.getElementById('ruler-instruction').innerText = 'Click or press [A] to place Point A';
+        }
+
+        document.getElementById('clear-ruler-btn').addEventListener('click', clearRulerVisuals);
+
+        // --- Raycaster Pointer Selection (Touch & Mouse) ---
+        function setupPointerSelection() {
+            const raycaster = new THREE.Raycaster();
+            const pointer = new THREE.Vector2();
+            let downPos = { x: 0, y: 0 };
+
+            renderer.domElement.addEventListener('pointerdown', (e) => {
+                downPos = { x: e.clientX, y: e.clientY };
+            });
+
+            renderer.domElement.addEventListener('pointerup', (e) => {
+                const moveDist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+                if (moveDist > 6 || transformControls.dragging) return;
+
+                const rect = renderer.domElement.getBoundingClientRect();
+                pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+                raycaster.setFromCamera(pointer, camera);
+
+                if (state.rulerMode) {
+                    const hits = raycaster.intersectObjects(state.objects, false);
+                    if (hits.length > 0) {
+                        addRulerPoint(hits[0].point);
+                    } else {
+                        const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+                        const pt = new THREE.Vector3();
+                        if (raycaster.ray.intersectPlane(groundPlane, pt)) {
+                            addRulerPoint(pt);
+                        }
+                    }
+                    return;
+                }
+
+                const intersects = raycaster.intersectObjects(state.objects, false);
+                if (intersects.length > 0) {
+                    selectObject(intersects[0].object, e.shiftKey);
+                } else {
+                    selectObject(null, false);
+                }
+            });
+        }
+
+        // --- Select Object Under 3D Cursor (For Xbox Controller D-Pad Up) ---
+        function selectObjectAtCursor() {
+            if (state.objects.length === 0) {
+                showToast('No objects in workspace to select');
+                return;
+            }
+
+            // Find closest object to 3D cursor
+            let closest = null;
+            let minDist = 1.5;
+            state.objects.forEach(obj => {
+                const dist = obj.position.distanceTo(cursorGroup3D.position);
+                if (dist < minDist) {
+                    minDist = dist;
+                    closest = obj;
+                }
+            });
+
+            if (closest) {
+                selectObject(closest, true); // Additive multi-select by default on controller
+                showToast(`Selected ${closest.userData.type} (${state.selectedObjects.length} total)`);
+            } else {
+                showToast('Move 3D cursor closer to a part and press D-Pad Up');
+            }
+        }
+
+        // --- Xbox / Standard Gamepad Input Handler ---
+        function handleGamepadInputs() {
+            const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+            const gp = gamepads[0] || gamepads[1] || gamepads[2] || gamepads[3];
+            const statusEl = document.getElementById('gamepad-status');
+
+            if (!gp) {
+                statusEl.innerHTML = '<i class="fa-solid fa-gamepad"></i> <span>No Controller</span>';
+                statusEl.className = 'text-amber-400 flex items-center gap-1';
+                return;
+            }
+
+            statusEl.innerHTML = '<i class="fa-solid fa-gamepad"></i> <span>Controller Active</span>';
+            statusEl.className = 'text-emerald-400 flex items-center gap-1 font-semibold';
+
+            const deadzone = 0.14;
+            const moveSpeed = 0.035;
+            const lx = Math.abs(gp.axes[0]) > deadzone ? gp.axes[0] : 0;
+            const ly = Math.abs(gp.axes[1]) > deadzone ? gp.axes[1] : 0;
+            const rx = Math.abs(gp.axes[2]) > deadzone ? gp.axes[2] : 0;
+            const ry = Math.abs(gp.axes[3]) > deadzone ? gp.axes[3] : 0;
+
+            // Move 3D Cursor (and Selected Object if Gizmo attached)
+            const activeTarget = state.selectedObject && transformControls.object ? state.selectedObject : cursorGroup3D;
+
+            if (lx !== 0 || ly !== 0 || ry !== 0) {
+                activeTarget.position.x += lx * moveSpeed;
+                activeTarget.position.z += ly * moveSpeed;
+                activeTarget.position.y = Math.max(0, activeTarget.position.y - ry * moveSpeed);
+
+                if (state.snapToGrid) {
+                    const step = state.gridSnapStep;
+                    activeTarget.position.x = Math.round(activeTarget.position.x / step) * step;
+                    activeTarget.position.y = Math.round(activeTarget.position.y / step) * step;
+                    activeTarget.position.z = Math.round(activeTarget.position.z / step) * step;
+                }
+                updateMeasurementHUD();
+            }
+
+            // Right Stick X-Axis orbits camera smoothly
+            if (rx !== 0) {
+                const offset = camera.position.clone().sub(controls.target);
+                offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), -rx * 0.03);
+                camera.position.copy(controls.target).add(offset);
+            }
+
+            const buttons = gp.buttons;
+            const isButtonPressed = (idx) => buttons[idx] && buttons[idx].pressed;
+            const justPressed = (idx) => {
+                const pressed = isButtonPressed(idx);
+                const wasPressed = !!state.prevButtons[idx];
+                state.prevButtons[idx] = pressed;
+                return pressed && !wasPressed;
+            };
+
+            // Face Buttons: A (0), B (1), X (2), Y (3)
+            if (justPressed(0)) spawnObjectAtCursor();
+            if (justPressed(1)) deleteSelectedObject();
+            if (justPressed(2)) {
+                const shapes = ['box', 'cylinder', 'sphere'];
+                const nextIdx = (shapes.indexOf(state.selectedPrimitive) + 1) % shapes.length;
+                document.getElementById(`tool-${shapes[nextIdx]}`).click();
+            }
+            if (justPressed(3)) snapToggle.click();
+
+            // D-Pad Controls (No Shift Key Required!)
+            // 12: D-Pad Up -> Multi-Select part at cursor
+            if (justPressed(12)) selectObjectAtCursor();
+            // 13: D-Pad Down -> Toggle Solid / Hole
+            if (justPressed(13) && state.selectedObject) {
+                setObjectHoleState(!state.selectedObject.userData.isHole);
+            }
+            // 15: D-Pad Right -> CSG Group / Cut Holes
+            if (justPressed(15)) performCSGGroup();
+            // 14: D-Pad Left -> Clear Selection
+            if (justPressed(14)) {
+                selectObject(null, false);
+                showToast('Selection Cleared');
+            }
+
+            // Bumpers & Triggers Scaling Controls
+            if (isButtonPressed(4)) {
+                activeTarget.scale.multiplyScalar(0.985);
+                if (activeTarget === cursorGroup3D) state.cursorScale.copy(cursorGroup3D.scale);
+                updateMeasurementHUD();
+            }
+            if (isButtonPressed(5)) {
+                activeTarget.scale.multiplyScalar(1.015);
+                if (activeTarget === cursorGroup3D) state.cursorScale.copy(cursorGroup3D.scale);
+                updateMeasurementHUD();
+            }
+            if (buttons[6] && buttons[6].value > 0.1) {
+                activeTarget.scale.y = Math.max(0.1, activeTarget.scale.y - buttons[6].value * 0.03);
+                if (activeTarget === cursorGroup3D) state.cursorScale.copy(cursorGroup3D.scale);
+                updateMeasurementHUD();
+            }
+            if (buttons[7] && buttons[7].value > 0.1) {
+                activeTarget.scale.y += buttons[7].value * 0.03;
+                if (activeTarget === cursorGroup3D) state.cursorScale.copy(cursorGroup3D.scale);
+                updateMeasurementHUD();
+            }
+        }
+
+        // --- UI Event Listeners ---
+        saveCalibrationBtn.addEventListener('click', () => {
+            state.scaleUnit = unitTypeSelect.value;
+            state.unitRatio = parseFloat(unitScaleInput.value) || 1.0;
+
+            unitDisplayHeader.innerText = `1 Unit = ${state.unitRatio.toFixed(2)} ${state.scaleUnit}`;
+            document.querySelectorAll('.unit-label-text').forEach(el => {
+                el.innerText = state.scaleUnit;
+            });
+
+            modal.classList.add('opacity-0', 'pointer-events-none');
+            updateMeasurementHUD();
+            if (state.inspectMode) updateReferenceProp(refPropSelect.value);
+            showToast(`Calibrated: 1 Unit = ${state.unitRatio} ${state.scaleUnit}`);
+        });
+
+        vrInspectBtn.addEventListener('click', () => setInspectMode(!state.inspectMode));
+        exitInspectBtn.addEventListener('click', () => setInspectMode(false));
+        refPropSelect.addEventListener('change', (e) => updateReferenceProp(e.target.value));
+
+        closeModalBtn.addEventListener('click', () => {
+            modal.classList.add('opacity-0', 'pointer-events-none');
+        });
+
+        unitTypeSelect.addEventListener('change', () => {
+            unitLabelSuffix.innerText = unitTypeSelect.value;
+        });
+
+        calibrateBtn.addEventListener('click', () => {
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+        });
+
+        tapeMeasureToggle.addEventListener('click', toggleRulerMode);
+
+        snapToggle.addEventListener('click', () => {
+            state.snapToGrid = !state.snapToGrid;
+            if (state.snapToGrid) {
+                snapToggle.classList.add('bg-amber-600/30', 'border-amber-500/50', 'text-amber-300');
+                snapIcon.classList.add('animate-bounce');
+                showToast('Grid Snapping Enabled (0.1u)');
+            } else {
+                snapToggle.classList.remove('bg-amber-600/30', 'border-amber-500/50', 'text-amber-300');
+                snapIcon.classList.remove('animate-bounce');
+                showToast('Grid Snapping Disabled');
+            }
+        });
+
+        multiselectToggle.addEventListener('click', () => {
+            state.multiSelectMode = !state.multiSelectMode;
+            if (state.multiSelectMode) {
+                multiselectToggle.classList.add('bg-purple-600', 'text-white');
+                document.getElementById('multiselect-label').innerText = 'Multi: ON';
+                showToast('Multi-Select ON: Tap multiple parts to group');
+            } else {
+                multiselectToggle.classList.remove('bg-purple-600', 'text-white');
+                document.getElementById('multiselect-label').innerText = 'Multi-Select';
+                showToast('Multi-Select OFF');
+            }
+        });
+
+        stateSolidBtn.addEventListener('click', () => setObjectHoleState(false));
+        stateHoleBtn.addEventListener('click', () => setObjectHoleState(true));
+        groupCsgBtn.addEventListener('click', performCSGGroup);
+        duplicateBtn.addEventListener('click', duplicateSelectedObject);
+
+        gizmoModeBtn.addEventListener('click', () => {
+            if (!state.selectedObject) {
+                showToast('Select an object first to attach Gizmo');
+                return;
+            }
+            if (transformControls.object) {
+                transformControls.detach();
+                showToast('Edit Gizmo Hidden');
+            } else {
+                transformControls.attach(state.selectedObject);
+                showToast('Edit Gizmo Attached (Drag Arrows or Use Left Stick)');
+            }
+        });
+
+        clearAllBtn.addEventListener('click', () => {
+            state.objects.forEach(obj => scene.remove(obj));
+            state.objects = [];
+            selectObject(null, false);
+            clearRulerVisuals();
+            showToast('Workspace Cleared');
+        });
+
+        // Tool Switchers
+        ['box', 'cylinder', 'sphere'].forEach(type => {
+            const btn = document.getElementById(`tool-${type}`);
+            btn.addEventListener('click', () => {
+                state.selectedPrimitive = type;
+                updateCursorShape();
+
+                document.querySelectorAll('.tool-btn').forEach(b => {
+                    b.classList.remove('active', 'bg-indigo-600', 'text-white');
+                    b.classList.add('text-slate-300');
+                });
+                btn.classList.add('active', 'bg-indigo-600', 'text-white');
+                btn.classList.remove('text-slate-300');
+            });
+        });
+
+        document.getElementById('spawn-btn-touch').addEventListener('click', spawnObjectAtCursor);
+
+        // Export Scene as Standard OBJ File
+        document.getElementById('export-obj-btn').addEventListener('click', () => {
+            if (state.objects.length === 0) {
+                showToast('Nothing to export! Spawn objects first.');
+                return;
+            }
+
+            let objOutput = `# SpatialCrafter 3D Model Export\n# Unit Scale: 1 Unit = ${state.unitRatio} ${state.scaleUnit}\n\n`;
+            let vertexOffset = 1;
+
+            state.objects.forEach((mesh, idx) => {
+                if (mesh.userData.isHole) return;
+                mesh.updateMatrixWorld(true);
+                const geo = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
+                const pos = geo.attributes.position;
+
+                objOutput += `o Object_${idx + 1}_${mesh.userData.type.replace(/\s+/g, '_')}\n`;
+                const v = new THREE.Vector3();
+
+                for (let i = 0; i < pos.count; i++) {
+                    v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+                    objOutput += `v ${(v.x * state.unitRatio).toFixed(4)} ${(v.y * state.unitRatio).toFixed(4)} ${(v.z * state.unitRatio).toFixed(4)}\n`;
+                }
+
+                for (let i = 0; i < pos.count; i += 3) {
+                    objOutput += `f ${vertexOffset + i} ${vertexOffset + i + 1} ${vertexOffset + i + 2}\n`;
+                }
+                vertexOffset += pos.count;
+            });
+
+            const blob = new Blob([objOutput], { type: 'text/plain' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `spatial_model_${Date.now()}.obj`;
+            link.click();
+            showToast('Exported 3D Model (.OBJ)');
+        });
+
+        // Keyboard Shortcuts
+        window.addEventListener('keydown', (e) => {
+            if (document.activeElement.tagName === 'INPUT') return;
+            if (e.key === 'h' || e.key === 'H') {
+                if (state.selectedObject) setObjectHoleState(!state.selectedObject.userData.isHole);
+            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+                e.preventDefault();
+                performCSGGroup();
+            } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                deleteSelectedObject();
+            }
+        });
+
+        // Toast Notification Helper
+        let toastTimeout;
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-message').innerText = msg;
+            toast.classList.remove('opacity-0', '-translate-y-4');
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                toast.classList.add('opacity-0', '-translate-y-4');
+            }, 2500);
+        }
+
+        // Window Resize Handler
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Main Render & Controller Loop
+        function animate(timestamp, frame) {
+            // Handle WebXR Hit-Test Surface Reticle in AR Mode
+            if (frame && renderer.xr.isPresenting) {
+                const referenceSpace = renderer.xr.getReferenceSpace();
+                const session = renderer.xr.getSession();
+
+                if (!hitTestSourceRequested) {
+                    session.requestReferenceSpace('viewer').then((viewerSpace) => {
+                        session.requestHitTestSource({ space: viewerSpace }).then((source) => {
+                            hitTestSource = source;
+                        });
+                    });
+                    hitTestSourceRequested = true;
+                }
+
+                if (hitTestSource) {
+                    const hitTestResults = frame.getHitTestResults(hitTestSource);
+                    if (hitTestResults.length > 0) {
+                        const hit = hitTestResults[0];
+                        reticleMesh.visible = true;
+                        reticleMesh.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+                    } else {
+                        reticleMesh.visible = false;
+                    }
+                }
+            }
+
+            handleGamepadInputs();
+            controls.update();
+            selectionHelpers.forEach(h => h.update());
+            renderer.render(scene, camera);
+        }
+
+        // Start Engine on Window Load
+        window.onload = function () {
+            initEngine();
+        };
+    </script>
+</body>
+</html>
