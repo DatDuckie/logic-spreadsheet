@@ -10,18 +10,23 @@
   --input-menu-bg: #1b5e20;
   --input-on-bg: #4ade80;
 
-  /* Gates: Orange */
-  --gate-off-bg: #331005;
-  --gate-menu-bg: #c2410c;
-  --gate-on-bg: #fb923c;
-  
-  /* Always On / Constants: Purple */
+  /* Constants (Always On): Purple */
   --const-off-bg: #2a143d;
   --const-menu-bg: #7e22ce;
   --const-on-bg: #c084fc;
 
+  /* Delay Blocks: Cyan / Teal */
+  --delay-off-bg: #083344;
+  --delay-menu-bg: #0891b2;
+  --delay-on-bg: #22d3ee;
+
+  /* Gates: Orange */
+  --gate-off-bg: #331005;
+  --gate-menu-bg: #c2410c;
+  --gate-on-bg: #fb923c;
+
   /* Standard / Formula Cells: Muted Red-Pink */
-  --std-default-bg: #0b1021; /* Dark navy blue default fill */
+  --std-default-bg: #0b1021;
   --std-ref-off-bg: #38151a;
   --std-ref-menu-bg: #6b212c;
   --std-ref-on-bg: #e11d48;
@@ -54,6 +59,7 @@ header {
   border-bottom: 1px solid var(--grid-line);
   padding: 8px 12px;
   z-index: 10;
+  transition: box-shadow 0.15s;
 }
 
 header.menu-locked {
@@ -104,11 +110,18 @@ header.menu-locked .menu-item.active-menu {
 /* Menu Item Colors */
 .menu-empty { background: var(--std-default-bg); color: var(--text-light); border-color: var(--grid-line); }
 .menu-input { background: var(--input-menu-bg); color: var(--text-light); }
+.menu-const { background: var(--const-menu-bg); color: var(--text-light); }
+.menu-delay { background: var(--delay-menu-bg); color: var(--text-light); }
 .menu-gate { background: var(--gate-menu-bg); color: var(--text-light); }
 .menu-std { background: var(--std-ref-menu-bg); color: var(--text-light); }
-.menu-const { background: var(--const-menu-bg); color: var(--text-light); }
 
-.export-btn {
+.toolbar-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.action-btn {
   background: #1e293b;
   color: var(--text-light);
   border: 1px solid var(--grid-line);
@@ -118,10 +131,9 @@ header.menu-locked .menu-item.active-menu {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  flex-shrink: 0;
 }
 
-.export-btn:active {
+.action-btn:active {
   background: #334155;
 }
 
@@ -212,14 +224,17 @@ header.menu-locked .menu-item.active-menu {
 .cell.input-off { background-color: var(--input-off-bg); color: var(--text-light); }
 .cell.input-on { background-color: var(--input-on-bg); color: var(--text-dark); }
 
+.cell.const-off { background-color: var(--const-off-bg); color: var(--text-light); }
+.cell.const-on { background-color: var(--const-on-bg); color: var(--text-dark); }
+
+.cell.delay-off { background-color: var(--delay-off-bg); color: var(--text-light); }
+.cell.delay-on { background-color: var(--delay-on-bg); color: var(--text-dark); }
+
 .cell.gate-off { background-color: var(--gate-off-bg); color: var(--text-light); }
 .cell.gate-on { background-color: var(--gate-on-bg); color: var(--text-dark); }
 
 .cell.std-ref-off { background-color: var(--std-ref-off-bg); color: var(--text-light); }
 .cell.std-ref-on { background-color: var(--std-ref-on-bg); color: var(--text-dark); }
-
-.cell.const-off { background-color: var(--const-off-bg); color: var(--text-light); }
-.cell.const-on { background-color: var(--const-on-bg); color: var(--text-dark); }
 
 /* Focus / Cursor Ring */
 .cell.focused {
@@ -239,7 +254,7 @@ header.menu-locked .menu-item.active-menu {
   100% { opacity: 0.65; }
 }
 
-/* Context Menu for Row/Col Deletion */
+/* Context Menu for Insertion & Deletion */
 .context-menu {
   position: fixed;
   background: #1e293b;
@@ -252,11 +267,17 @@ header.menu-locked .menu-item.active-menu {
 }
 
 .context-menu-item {
-  padding: 12px 20px;
-  font-size: 0.9rem;
+  padding: 10px 18px;
+  font-size: 0.85rem;
   font-weight: 600;
-  color: #f87171;
+  color: #f1f5f9;
   cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.context-menu-item:last-child {
+  border-bottom: none;
+  color: #f87171;
 }
 
 .context-menu-item:active {
