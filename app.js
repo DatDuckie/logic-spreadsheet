@@ -1,21 +1,20 @@
 // Grid Configuration
 let cols = 16;
 let rows = 20;
-let gridData = {}; // key: "R_C", value: { type, value, formula, inputs, delayTime, history }
+let gridData = {}; // key: "R_C", value: { type, value, formula, inputs, history }
 
 // Navigation & Four-Mode State System
 // Modes:
 // 'INTERACT' = Safe clicking mode: toggle input switches, view cells, but CANNOT place items.
 // 'MENU'     = Top toolbar focus: scroll tools with LB/RB/D-pad. Grid is locked.
 // 'PLACING'  = Active placement mode: clicking cells stamps the selected menu tool over and over until B is pressed.
-// 'WIRING'   = Gate/Delay formula mode: selecting input cells, B to finish.
+// 'WIRING'   = Gate formula mode: selecting input cells, B to finish.
 let cursorCol = 0;
 let cursorRow = 0;
 let selectedMenuIndex = 0;
 let currentMode = 'INTERACT'; 
 let activeGateCell = null;
 let wiringInputs = [];
-let editingDelayCell = null;
 
 // Pinch-to-Zoom State
 let currentScale = 1.0;
@@ -34,7 +33,6 @@ const menuItems = [
   { type: 'EMPTY', label: 'Empty', class: 'menu-empty' },
   { type: 'INPUT', label: 'Input (0/1)', class: 'menu-input' },
   { type: 'ON_CONST', label: 'Always On', class: 'menu-const' },
-  { type: 'DELAY', label: 'Delay', class: 'menu-delay' },
   { type: 'AND', label: 'AND', class: 'menu-gate' },
   { type: 'OR', label: 'OR', class: 'menu-gate' },
   { type: 'XOR', label: 'XOR', class: 'menu-gate' },
@@ -61,7 +59,7 @@ function tryEnterFullscreen() {
 function initGrid() {
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      gridData[`${r}_${c}`] = { type: 'EMPTY', value: 0, formula: '', inputs: [], delayTime: 0.5, history: [] };
+      gridData[`${r}_${c}`] = { type: 'EMPTY', value: 0, formula: '', inputs: [], history: [] };
     }
   }
 }
@@ -111,13 +109,12 @@ function renderGrid() {
     html += `<tr><td class="row-header" data-row="${r}">${r + 1}</td>`;
     for (let c = 0; c < cols; c++) {
       const cellKey = `${r}_${c}`;
-      const cell = gridData[cellKey] || { type: 'EMPTY', value: 0, delayTime: 0.5 };
+      const cell = gridData[cellKey] || { type: 'EMPTY', value: 0 };
       
       let cssClass = 'cell ';
       if (cell.type === 'EMPTY') cssClass += 'empty';
       else if (cell.type === 'INPUT') cssClass += cell.value === 1 ? 'input-on' : 'input-off';
       else if (cell.type === 'ON_CONST') cssClass += cell.value === 1 ? 'const-on' : 'const-off';
-      else if (cell.type === 'DELAY') cssClass += cell.value === 1 ? 'delay-on' : 'delay-off';
       else if (['AND', 'OR', 'XOR', 'NOT'].includes(cell.type)) cssClass += cell.value === 1 ? 'gate-on' : 'gate-off';
       else if (cell.type === 'STD_REF') cssClass += cell.value === 1 ? 'std-ref-on' : 'std-ref-off';
 
@@ -128,7 +125,6 @@ function renderGrid() {
 
       let displayVal = '';
       if (cell.type === 'INPUT' || cell.type === 'ON_CONST') displayVal = cell.value;
-      else if (cell.type === 'DELAY') displayVal = `${cell.delayTime.toFixed(2)}s`;
       else if (['AND', 'OR', 'XOR', 'NOT'].includes(cell.type)) displayVal = `${cell.type}(${cell.value})`;
       else if (cell.type === 'STD_REF') displayVal = cell.value;
 
@@ -175,7 +171,6 @@ function updateStatusBar() {
   if (currentMode === 'MENU') modeLabel = 'MENU (Selecting tool)';
   if (currentMode === 'PLACING') modeLabel = `PLACING: ${menuItems[selectedMenuIndex].label} (B to exit)`;
   if (currentMode === 'WIRING') modeLabel = 'WIRING (Select inputs, B or Start to finish)';
-  if (currentMode === 'DELAY_EDIT') modeLabel = `DELAY CONFIG (LT/RT adjust: ${cell.delayTime.toFixed(2)}s)`;
   
   let statusText = `Cell: ${cellCoord} | Mode: ${modeLabel}`;
   if (cell && cell.formula) statusText += ` | =${cell.formula}`;
@@ -201,12 +196,6 @@ function evaluateCell(r, c) {
   if (cell.type === 'INPUT') return;
   if (cell.type === 'ON_CONST') {
     cell.value = 1;
-    return;
-  }
-
-  if (cell.type === 'DELAY' && cell.inputs.length === 1) {
-    const target = gridData[`${cell.inputs[0].r}_${cell.inputs[0].c}`];
-    cell.value = target ? target.value : 0;
     return;
   }
 
@@ -246,7 +235,6 @@ function applyMenuItemToCursor() {
   const selectedType = menuItems[selectedMenuIndex].type;
   
   if (currentMode === 'INTERACT') {
-    // In Interact mode, clicking a cell ONLY toggles input switches
     if (currentCell.type === 'INPUT') {
       currentCell.value = currentCell.value === 1 ? 0 : 1;
       triggerRumble('medium');
@@ -257,27 +245,20 @@ function applyMenuItemToCursor() {
   }
 
   if (currentMode === 'PLACING') {
-    // Stamp the selected menu tool onto the grid
     if (selectedType === 'EMPTY') {
-      gridData[cellKey] = { type: 'EMPTY', value: 0, formula: '', inputs: [], delayTime: 0.5 };
+      gridData[cellKey] = { type: 'EMPTY', value: 0, formula: '', inputs: [] };
       triggerRumble('light');
     } else if (selectedType === 'INPUT') {
-      gridData[cellKey] = { type: 'INPUT', value: 1, formula: '', inputs: [], delayTime: 0.5 };
+      gridData[cellKey] = { type: 'INPUT', value: 1, formula: '', inputs: [] };
       triggerRumble('medium');
     } else if (selectedType === 'ON_CONST') {
-      gridData[cellKey] = { type: 'ON_CONST', value: 1, formula: '', inputs: [], delayTime: 0.5 };
+      gridData[cellKey] = { type: 'ON_CONST', value: 1, formula: '', inputs: [] };
       triggerRumble('medium');
-    } else if (selectedType === 'DELAY') {
-      currentMode = 'WIRING';
-      activeGateCell = { r: cursorRow, c: cursorCol };
-      wiringInputs = [];
-      gridData[cellKey] = { type: 'DELAY', value: 0, formula: '', inputs: [], delayTime: 0.5 };
-      triggerRumble('light');
     } else if (['AND', 'OR', 'XOR', 'NOT', 'STD_REF'].includes(selectedType)) {
       currentMode = 'WIRING';
       activeGateCell = { r: cursorRow, c: cursorCol };
       wiringInputs = [];
-      gridData[cellKey] = { type: selectedType, value: 0, formula: '', inputs: [], delayTime: 0.5 };
+      gridData[cellKey] = { type: selectedType, value: 0, formula: '', inputs: [] };
       triggerRumble('light');
     }
     evaluateAll();
@@ -292,7 +273,6 @@ function handleCellClick(r, c) {
   cursorRow = r;
   cursorCol = c;
 
-  // STRICT MODE SEPARATION: Never place items while wiring or interacting
   if (currentMode === 'WIRING') {
     if (!activeGateCell) {
       currentMode = 'INTERACT';
@@ -306,21 +286,13 @@ function handleCellClick(r, c) {
       return;
     }
     
-    if (cell.type === 'NOT' || cell.type === 'STD_REF' || cell.type === 'DELAY') {
+    if (cell.type === 'NOT' || cell.type === 'STD_REF') {
       cell.inputs = [{ r, c }];
       cell.formula = cell.type === 'STD_REF' ? `${getCellId(r, c)}` : `${cell.type}(${getCellId(r, c)})`;
-      
-      if (cell.type === 'DELAY') {
-        currentMode = 'DELAY_EDIT';
-        editingDelayCell = activeGateCell;
-        triggerRumble('medium');
-      } else {
-        currentMode = 'PLACING';
-        activeGateCell = null;
-        triggerRumble('medium');
-      }
+      currentMode = 'PLACING';
+      activeGateCell = null;
+      triggerRumble('medium');
     } else {
-      // Prevent duplicate cell input in multi-input gates (AND, OR, XOR)
       const alreadyAdded = wiringInputs.some(inp => inp.r === r && inp.c === c);
       if (alreadyAdded) {
         triggerRumble('light');
@@ -340,7 +312,6 @@ function handleCellClick(r, c) {
     renderGrid();
   } 
   else if (currentMode === 'INTERACT') {
-    // Clicking in interact mode only toggles input switches
     const cellKey = `${r}_${c}`;
     const currentCell = gridData[cellKey];
     if (currentCell && currentCell.type === 'INPUT') {
@@ -396,7 +367,7 @@ function executeGridAction(actionType) {
     for (let r = 0; r < rows; r++) {
       if (r === insertAt) {
         for (let c = 0; c < cols; c++) {
-          newGrid[`${r}_${c}`] = { type: 'EMPTY', value: 0, formula: '', inputs: [], delayTime: 0.5 };
+          newGrid[`${r}_${c}`] = { type: 'EMPTY', value: 0, formula: '', inputs: [] };
         }
         continue;
       }
@@ -420,7 +391,7 @@ function executeGridAction(actionType) {
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (c === insertAt) {
-          newGrid[`${r}_${c}`] = { type: 'EMPTY', value: 0, formula: '', inputs: [], delayTime: 0.5 };
+          newGrid[`${r}_${c}`] = { type: 'EMPTY', value: 0, formula: '', inputs: [] };
           continue;
         }
         const oldC = c > insertAt ? c - 1 : c;
@@ -626,39 +597,13 @@ function exportToCSV() {
 document.getElementById('export-btn').addEventListener('click', exportToCSV);
 
 // Gamepad Poll Loop
-let delayHoldTimer = 0;
 function pollGamepads() {
   const gamepads = navigator.getGamepads();
   const gp = gamepads[0];
 
   if (gp) {
     const currentTime = performance.now();
-
-    if (currentMode === 'DELAY_EDIT' && editingDelayCell) {
-      const ltVal = gp.buttons[6]?.value || 0;
-      const rtVal = gp.buttons[7]?.value || 0;
-      const btnA = gp.buttons[0]?.pressed;
-      const btnStart = gp.buttons[9]?.pressed;
-
-      if (btnA || btnStart) {
-        currentMode = 'PLACING';
-        editingDelayCell = null;
-        triggerRumble('medium');
-        renderGrid();
-      } else if (ltVal > 0.1 || rtVal > 0.1) {
-        if (currentTime - delayHoldTimer > 40) {
-          const cell = gridData[`${editingDelayCell.r}_${editingDelayCell.c}`];
-          if (cell) {
-            const step = 0.01 * (ltVal > 0 ? ltVal * 2 : rtVal * 2);
-            if (ltVal > 0.1) cell.delayTime = Math.min(10.0, cell.delayTime + step);
-            if (rtVal > 0.1) cell.delayTime = Math.max(0.01, cell.delayTime - step);
-            triggerRumble('light');
-            renderGrid();
-          }
-          delayHoldTimer = currentTime;
-        }
-      }
-    } else if (currentTime - lastInputTime > inputDelay) {
+    if (currentTime - lastInputTime > inputDelay) {
       if (handleControllerInput(gp)) {
         lastInputTime = currentTime;
       }
@@ -727,7 +672,7 @@ function handleControllerInput(gp) {
     }
     if (btnSelect || btnStart) {
       const cell = gridData[`${cursorRow}_${cursorCol}`];
-      if (['AND', 'OR', 'XOR', 'NOT', 'STD_REF', 'DELAY'].includes(cell.type)) {
+      if (['AND', 'OR', 'XOR', 'NOT', 'STD_REF'].includes(cell.type)) {
         currentMode = 'WIRING';
         activeGateCell = { r: cursorRow, c: cursorCol };
         wiringInputs = [...cell.inputs];
@@ -763,7 +708,7 @@ function handleControllerInput(gp) {
     }
     if (btnStart || btnSelect) {
       const cell = gridData[`${cursorRow}_${cursorCol}`];
-      if (['AND', 'OR', 'XOR', 'NOT', 'STD_REF', 'DELAY'].includes(cell.type)) {
+      if (['AND', 'OR', 'XOR', 'NOT', 'STD_REF'].includes(cell.type)) {
         currentMode = 'WIRING';
         activeGateCell = { r: cursorRow, c: cursorCol };
         wiringInputs = [...cell.inputs];
@@ -809,16 +754,6 @@ function handleControllerInput(gp) {
 
 // Keyboard Fallbacks
 window.addEventListener('keydown', (e) => {
-  if (currentMode === 'DELAY_EDIT' && editingDelayCell) {
-    const cell = gridData[`${editingDelayCell.r}_${editingDelayCell.c}`];
-    if (e.key === 'ArrowUp' || e.key === '=') cell.delayTime = Math.min(10.0, cell.delayTime + 0.05);
-    if (e.key === 'ArrowDown' || e.key === '-') cell.delayTime = Math.max(0.01, cell.delayTime - 0.05);
-    if (e.key === 'Enter' || e.key === 'Escape') { currentMode = 'PLACING'; editingDelayCell = null; }
-    renderGrid();
-    e.preventDefault();
-    return;
-  }
-
   if (currentMode === 'MENU') {
     if (e.key === 'ArrowLeft' || e.key === 'q') selectedMenuIndex = (selectedMenuIndex - 1 + menuItems.length) % menuItems.length;
     if (e.key === 'ArrowRight' || e.key === 'e') selectedMenuIndex = (selectedMenuIndex + 1) % menuItems.length;
