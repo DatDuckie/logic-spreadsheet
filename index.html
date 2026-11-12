@@ -14,10 +14,11 @@
 
   <header>
     <div class="toolbar-row">
-      <div class="menu-bar" id="menu-bar">
-        <!-- Dynamically populated toolbar items -->
+      <div class="menu-bar" id="menu-bar"></div>
+      <div class="toolbar-actions">
+        <button id="reset-btn" class="action-btn">Reset</button>
+        <button id="export-btn" class="action-btn">Export CSV</button>
       </div>
-      <button id="export-btn" class="export-btn">Export CSV</button>
     </div>
   </header>
 
@@ -27,13 +28,13 @@
   </div>
 
   <div class="grid-container" id="grid-container">
-    <div class="grid-zoom-wrapper" id="grid-zoom-wrapper">
-      <!-- Spreadsheet table rendered here -->
-    </div>
+    <div class="grid-zoom-wrapper" id="grid-zoom-wrapper"></div>
   </div>
 
   <div class="context-menu" id="context-menu">
-    <div class="context-menu-item" id="ctx-delete">Delete</div>
+    <div class="context-menu-item" id="ctx-insert-before">Insert Before/Above</div>
+    <div class="context-menu-item" id="ctx-insert-after">Insert After/Below</div>
+    <div class="context-menu-item delete-item" id="ctx-delete">Delete</div>
   </div>
 
   <script src="app.js"></script>
