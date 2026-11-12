@@ -4,17 +4,13 @@ let rows = 20;
 let gridData = {}; // key: "R_C", value: { type, value, formula, inputs }
 
 // Navigation & Mode State
-// Modes:
-// 'NAV'    = Moving cursor on grid & placing/toggling cells
-// 'MENU'   = Locked onto top menu bar (LB/RB or D-Pad scrolls tools; grid is frozen)
-// 'WIRING' = Selecting input cells for a logic gate or standard reference
 let cursorCol = 0;
 let cursorRow = 0;
 let selectedMenuIndex = 0;
-let currentMode = 'NAV'; 
+let currentMode = 'NAV'; // 'NAV', 'MENU', 'WIRING'
 let activeGateCell = null;
 let wiringInputs = [];
-let forceOverwriteNext = false; // True right after picking a new tool from MENU mode
+let forceOverwriteNext = false;
 
 // Pinch-to-Zoom State
 let currentScale = 1.0;
@@ -22,15 +18,17 @@ let initialPinchDistance = null;
 let initialScale = 1.0;
 
 // Context Menu Target
-let deleteTarget = null; // { type: 'ROW' | 'COL', index: number }
+let deleteTarget = null;
 
-// Gamepad Debounce
+// Gamepad & Keyboard Timing Configuration (Throttled D-pad movement to prevent overshooting)
 let lastInputTime = 0;
+const tapDelay = 220; // ~0.22s delay for comfortable single taps and smooth holding
 const inputDelay = 140;
 
 const menuItems = [
   { type: 'EMPTY', label: 'Empty', class: 'menu-empty' },
   { type: 'INPUT', label: 'Input (0/1)', class: 'menu-input' },
+  { type: 'ON_CONST', label: 'Always On', class: 'menu-const' },
   { type: 'AND', label: 'AND', class: 'menu-gate' },
   { type: 'OR', label: 'OR', class: 'menu-gate' },
   { type: 'XOR', label: 'XOR', class: 'menu-gate' },
@@ -38,7 +36,7 @@ const menuItems = [
   { type: 'STD_REF', label: 'Ref Cell', class: 'menu-std' }
 ];
 
-// Register inline Service Worker so Chrome allows PWA installation
+// Register inline Service Worker for PWA offline caching
 if ('serviceWorker' in navigator) {
   const swCode = `
     self.addEventListener('install', e => self.skipWaiting());
@@ -48,7 +46,6 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(() => {});
 }
 
-// Auto-Fullscreen Request on First User Gesture
 function tryEnterFullscreen() {
   const docEl = document.documentElement;
   if (!document.fullscreenElement && docEl.requestFullscreen) {
@@ -56,7 +53,6 @@ function tryEnterFullscreen() {
   }
 }
 
-// Initialize Grid
 function initGrid() {
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -79,7 +75,6 @@ function getCellId(r, c) {
   return getColLetter(c) + (r + 1);
 }
 
-// Haptic Feedback / Rumble Helper
 function triggerRumble(type = 'light') {
   const gamepads = navigator.getGamepads();
   const gp = gamepads[0];
@@ -98,7 +93,6 @@ function triggerRumble(type = 'light') {
   }
 }
 
-// Render Spreadsheet Table
 function renderGrid() {
   const wrapper = document.getElementById('grid-zoom-wrapper');
   let html = '<table class="spreadsheet-table"><thead><tr><th class="row-header">#</th>';
@@ -117,6 +111,7 @@ function renderGrid() {
       let cssClass = 'cell ';
       if (cell.type === 'EMPTY') cssClass += 'empty';
       else if (cell.type === 'INPUT') cssClass += cell.value === 1 ? 'input-on' : 'input-off';
+      else if (cell.type === 'ON_CONST') cssClass += cell.value === 1 ? 'const-on' : 'const-off';
       else if (['AND', 'OR', 'XOR', 'NOT'].includes(cell.type)) cssClass += cell.value === 1 ? 'gate-on' : 'gate-off';
       else if (cell.type === 'STD_REF') cssClass += cell.value === 1 ? 'std-ref-on' : 'std-ref-off';
 
@@ -126,7 +121,7 @@ function renderGrid() {
       }
 
       let displayVal = '';
-      if (cell.type === 'INPUT') displayVal = cell.value;
+      if (cell.type === 'INPUT' || cell.type === 'ON_CONST') displayVal = cell.value;
       else if (['AND', 'OR', 'XOR', 'NOT'].includes(cell.type)) displayVal = `${cell.type}(${cell.value})`;
       else if (cell.type === 'STD_REF') displayVal = cell.value;
 
@@ -158,7 +153,6 @@ function renderMenu() {
   });
   menuBar.innerHTML = html;
 
-  // Allow tapping menu items directly on touchscreen
   document.querySelectorAll('.menu-item').forEach(el => {
     el.addEventListener('click', () => {
       tryEnterFullscreen();
@@ -176,6 +170,7 @@ function updateStatusBar() {
   const cell = gridData[`${cursorRow}_${cursorCol}`];
   let modeLabel = currentMode;
   if (currentMode === 'MENU') modeLabel = 'MENU (Grid Locked)';
+  if (currentMode === 'WIRING') modeLabel = 'WIRING (Select inputs, B to finish)';
   
   let statusText = `Cell: ${cellCoord} | Mode: ${modeLabel}`;
   if (cell && cell.formula) statusText += ` | =${cell.formula}`;
@@ -196,7 +191,13 @@ function evaluateAll() {
 
 function evaluateCell(r, c) {
   const cell = gridData[`${r}_${c}`];
-  if (!cell || cell.type === 'INPUT') return;
+  if (!cell) return;
+
+  if (cell.type === 'INPUT') return;
+  if (cell.type === 'ON_CONST') {
+    cell.value = 1;
+    return;
+  }
 
   if (cell.type === 'STD_REF' && cell.inputs.length === 1) {
     const target = gridData[`${cell.inputs[0].r}_${cell.inputs[0].c}`];
@@ -234,7 +235,6 @@ function applyMenuItemToCursor() {
   const currentCell = gridData[cellKey];
   const selectedType = menuItems[selectedMenuIndex].type;
   
-  // If we didn't just pick a new tool from the menu, and we're on an INPUT switch, toggle 0 <-> 1
   if (!forceOverwriteNext && currentCell.type === 'INPUT') {
     currentCell.value = currentCell.value === 1 ? 0 : 1;
     triggerRumble('medium');
@@ -243,7 +243,6 @@ function applyMenuItemToCursor() {
     return;
   }
 
-  // Otherwise, place/overwrite with the chosen menu tool
   forceOverwriteNext = false;
 
   if (selectedType === 'EMPTY') {
@@ -251,6 +250,9 @@ function applyMenuItemToCursor() {
     triggerRumble('light');
   } else if (selectedType === 'INPUT') {
     gridData[cellKey] = { type: 'INPUT', value: 1, formula: '', inputs: [] };
+    triggerRumble('medium');
+  } else if (selectedType === 'ON_CONST') {
+    gridData[cellKey] = { type: 'ON_CONST', value: 1, formula: '', inputs: [] };
     triggerRumble('medium');
   } else if (['AND', 'OR', 'XOR', 'NOT', 'STD_REF'].includes(selectedType)) {
     currentMode = 'WIRING';
@@ -265,7 +267,7 @@ function applyMenuItemToCursor() {
 
 function handleCellClick(r, c) {
   tryEnterFullscreen();
-  if (currentMode === 'MENU') return; // Grid locked while menu is active
+  if (currentMode === 'MENU') return;
 
   cursorRow = r;
   cursorCol = c;
@@ -280,6 +282,13 @@ function handleCellClick(r, c) {
       activeGateCell = null;
       triggerRumble('medium');
     } else {
+      // Prevent duplicate cell input in multi-input gates
+      const alreadyAdded = wiringInputs.some(inp => inp.r === r && inp.c === c);
+      if (alreadyAdded) {
+        triggerRumble('light');
+        return;
+      }
+
       if (wiringInputs.length < 10) {
         wiringInputs.push({ r, c });
         triggerRumble('light');
@@ -373,7 +382,6 @@ document.getElementById('ctx-delete').addEventListener('click', (e) => {
   executeDelete();
 });
 
-// Table Listeners (Cells + Mobile Long-Press / Desktop Right-Click Headers)
 function attachTableListeners() {
   document.querySelectorAll('.cell').forEach(cell => {
     cell.addEventListener('click', () => {
@@ -383,16 +391,13 @@ function attachTableListeners() {
     });
   });
 
-  // Column Headers (Long press on mobile / Right click on PC)
   document.querySelectorAll('.col-header').forEach(th => {
     let timer;
     const colIdx = parseInt(th.dataset.col);
-
     th.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       openDeleteMenu(e.clientX, e.clientY, 'COL', colIdx, `Delete Column ${getColLetter(colIdx)}`);
     });
-
     th.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
       const touch = e.touches[0];
@@ -400,21 +405,16 @@ function attachTableListeners() {
         openDeleteMenu(touch.clientX, touch.clientY, 'COL', colIdx, `Delete Column ${getColLetter(colIdx)}`);
       }, 550);
     }, { passive: true });
-
     th.addEventListener('touchend', () => clearTimeout(timer));
-    th.addEventListener('touchmove', () => clearTimeout(timer));
   });
 
-  // Row Headers (Long press on mobile / Right click on PC)
   document.querySelectorAll('.row-header[data-row]').forEach(td => {
     let timer;
     const rowIdx = parseInt(td.dataset.row);
-
     td.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       openDeleteMenu(e.clientX, e.clientY, 'ROW', rowIdx, `Delete Row ${rowIdx + 1}`);
     });
-
     td.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
       const touch = e.touches[0];
@@ -422,9 +422,7 @@ function attachTableListeners() {
         openDeleteMenu(touch.clientX, touch.clientY, 'ROW', rowIdx, `Delete Row ${rowIdx + 1}`);
       }, 550);
     }, { passive: true });
-
     td.addEventListener('touchend', () => clearTimeout(timer));
-    td.addEventListener('touchmove', () => clearTimeout(timer));
   });
 }
 
@@ -433,8 +431,6 @@ function openDeleteMenu(x, y, type, index, label) {
   const menu = document.getElementById('context-menu');
   const item = document.getElementById('ctx-delete');
   item.innerText = label;
-
-  // Keep menu inside screen bounds
   const safeX = Math.min(x, window.innerWidth - 170);
   const safeY = Math.min(y, window.innerHeight - 60);
   menu.style.left = `${Math.max(10, safeX)}px`;
@@ -448,7 +444,7 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// Two-Finger Pinch-to-Zoom on Grid Container
+// Pinch-to-Zoom
 const gridContainer = document.getElementById('grid-container');
 const zoomWrapper = document.getElementById('grid-zoom-wrapper');
 
@@ -478,9 +474,7 @@ gridContainer.addEventListener('touchmove', (e) => {
 }, { passive: false });
 
 gridContainer.addEventListener('touchend', (e) => {
-  if (e.touches.length < 2) {
-    initialPinchDistance = null;
-  }
+  if (e.touches.length < 2) initialPinchDistance = null;
 });
 
 // CSV Export
@@ -505,7 +499,7 @@ function exportToCSV() {
 
 document.getElementById('export-btn').addEventListener('click', exportToCSV);
 
-// Gamepad API Poll Loop
+// Gamepad API Poll Loop with 0.22s Throttled D-Pad Movement
 function pollGamepads() {
   const gamepads = navigator.getGamepads();
   const gp = gamepads[0];
@@ -533,9 +527,12 @@ function handleControllerInput(gp) {
   const btnB = gp.buttons[1]?.pressed;
   const btnLB = gp.buttons[4]?.pressed;
   const btnRB = gp.buttons[5]?.pressed;
+  const btnSelect = gp.buttons[8]?.pressed;
   const btnStart = gp.buttons[9]?.pressed;
 
-  // 1. MENU MODE: Top bar is unlocked; grid is completely frozen
+  const anyDirection = up || down || left || right;
+  const currentTime = performance.now();
+
   if (currentMode === 'MENU') {
     if (btnLB || left) {
       selectedMenuIndex = (selectedMenuIndex - 1 + menuItems.length) % menuItems.length;
@@ -547,46 +544,54 @@ function handleControllerInput(gp) {
       triggerRumble('light');
       actionTaken = true;
     }
-    // Pressing Start, A, or B locks in the chosen tool and returns to the grid
-    if (btnStart || btnA || btnB) {
+    if (btnStart || btnSelect || btnA || btnB) {
       currentMode = 'NAV';
-      forceOverwriteNext = true; // Next A press on grid will overwrite even if cell is an Input
+      forceOverwriteNext = true;
       triggerRumble('medium');
       actionTaken = true;
     }
   }
-  // 2. NAV MODE: Grid is active; Start button toggles MENU mode (or wires an existing gate)
-  else if (currentMode === 'NAV') {
-    if (up) { cursorRow = Math.max(0, cursorRow - 1); forceOverwriteNext = false; triggerRumble('light'); actionTaken = true; }
-    if (down) { cursorRow = Math.min(rows - 1, cursorRow + 1); forceOverwriteNext = false; triggerRumble('light'); actionTaken = true; }
-    if (left) { cursorCol = Math.max(0, cursorCol - 1); forceOverwriteNext = false; triggerRumble('light'); actionTaken = true; }
-    if (right) { cursorCol = Math.min(cols - 1, cursorCol + 1); forceOverwriteNext = false; triggerRumble('light'); actionTaken = true; }
-    
-    if (btnA) {
-      applyMenuItemToCursor();
+  else if (currentMode === 'NAV' || currentMode === 'WIRING') {
+    // Throttled D-Pad movement (0.22s delay per step to prevent overshooting)
+    if (anyDirection && (currentTime - lastInputTime > tapDelay)) {
+      if (up) cursorRow = Math.max(0, cursorRow - 1);
+      if (down) cursorRow = Math.min(rows - 1, cursorRow + 1);
+      if (left) cursorCol = Math.max(0, cursorCol - 1);
+      if (right) cursorCol = Math.min(cols - 1, cursorCol + 1);
+      
+      if (currentMode === 'NAV') forceOverwriteNext = false;
+      triggerRumble('light');
+      lastInputTime = currentTime;
       actionTaken = true;
     }
-    if (btnStart) {
-      // Enter MENU mode so user can scroll tools without touching the grid
-      currentMode = 'MENU';
-      triggerRumble('medium');
-      actionTaken = true;
-    }
-  } 
-  // 3. WIRING MODE: Selecting input sources for a gate
-  else if (currentMode === 'WIRING') {
-    if (up) { cursorRow = Math.max(0, cursorRow - 1); triggerRumble('light'); actionTaken = true; }
-    if (down) { cursorRow = Math.min(rows - 1, cursorRow + 1); triggerRumble('light'); actionTaken = true; }
-    if (left) { cursorCol = Math.max(0, cursorCol - 1); triggerRumble('light'); actionTaken = true; }
-    if (right) { cursorCol = Math.min(cols - 1, cursorCol + 1); triggerRumble('light'); actionTaken = true; }
 
-    if (btnA) {
-      handleCellClick(cursorRow, cursorCol);
-      actionTaken = true;
-    }
-    if (btnB || btnStart) {
-      finishWiring();
-      actionTaken = true;
+    if (currentMode === 'NAV') {
+      if (btnA) {
+        applyMenuItemToCursor();
+        actionTaken = true;
+      }
+      if (btnSelect || btnStart) {
+        const cell = gridData[`${cursorRow}_${cursorCol}`];
+        if (['AND', 'OR', 'XOR', 'NOT', 'STD_REF'].includes(cell.type)) {
+          currentMode = 'WIRING';
+          activeGateCell = { r: cursorRow, c: cursorCol };
+          wiringInputs = [...cell.inputs]; // Load existing inputs for quick re-editing
+          triggerRumble('medium');
+        } else {
+          currentMode = 'MENU';
+          triggerRumble('medium');
+        }
+        actionTaken = true;
+      }
+    } else if (currentMode === 'WIRING') {
+      if (btnA) {
+        handleCellClick(cursorRow, cursorCol);
+        actionTaken = true;
+      }
+      if (btnB || btnStart || btnSelect) {
+        finishWiring();
+        actionTaken = true;
+      }
     }
   }
 
@@ -602,22 +607,24 @@ function handleControllerInput(gp) {
 // Keyboard Fallbacks
 window.addEventListener('keydown', (e) => {
   if (currentMode === 'MENU') {
-    if (e.key === 'ArrowLeft' || e.key === 'q' || e.key === 'Q') {
-      selectedMenuIndex = (selectedMenuIndex - 1 + menuItems.length) % menuItems.length;
-    }
-    if (e.key === 'ArrowRight' || e.key === 'e' || e.key === 'E') {
-      selectedMenuIndex = (selectedMenuIndex + 1) % menuItems.length;
-    }
-    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
-      currentMode = 'NAV';
-      forceOverwriteNext = true;
-    }
+    if (e.key === 'ArrowLeft' || e.key === 'q') selectedMenuIndex = (selectedMenuIndex - 1 + menuItems.length) % menuItems.length;
+    if (e.key === 'ArrowRight' || e.key === 'e') selectedMenuIndex = (selectedMenuIndex + 1) % menuItems.length;
+    if (e.key === 'Enter' || e.key === 'Escape') { currentMode = 'NAV'; forceOverwriteNext = true; }
   } else if (currentMode === 'NAV') {
     if (e.key === 'ArrowUp') { cursorRow = Math.max(0, cursorRow - 1); forceOverwriteNext = false; }
     if (e.key === 'ArrowDown') { cursorRow = Math.min(rows - 1, cursorRow + 1); forceOverwriteNext = false; }
     if (e.key === 'ArrowLeft') { cursorCol = Math.max(0, cursorCol - 1); forceOverwriteNext = false; }
     if (e.key === 'ArrowRight') { cursorCol = Math.min(cols - 1, cursorCol + 1); forceOverwriteNext = false; }
-    if (e.key === 'm' || e.key === 'M') currentMode = 'MENU';
+    if (e.key === 'm' || e.key === 'M') {
+      const cell = gridData[`${cursorRow}_${cursorCol}`];
+      if (['AND', 'OR', 'XOR', 'NOT', 'STD_REF'].includes(cell.type)) {
+        currentMode = 'WIRING';
+        activeGateCell = { r: cursorRow, c: cursorCol };
+        wiringInputs = [...cell.inputs];
+      } else {
+        currentMode = 'MENU';
+      }
+    }
     if (e.key === 'Enter' || e.key === ' ') applyMenuItemToCursor();
   } else if (currentMode === 'WIRING') {
     if (e.key === 'ArrowUp') cursorRow = Math.max(0, cursorRow - 1);
@@ -632,7 +639,6 @@ window.addEventListener('keydown', (e) => {
   e.preventDefault();
 });
 
-// Initialize on Load
 window.addEventListener('load', () => {
   initGrid();
   renderGrid();
