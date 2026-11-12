@@ -3,12 +3,12 @@ let cols = 16;
 let rows = 20;
 let gridData = {}; // key: "R_C", value: { type, value, formula, inputs, history }
 
-// Navigation & Four-Mode State System
+// Navigation & Strict State System
 // Modes:
-// 'INTERACT' = Safe clicking mode: toggle input switches, view cells, but CANNOT place items.
-// 'MENU'     = Top toolbar focus: scroll tools with LB/RB/D-pad. Grid is locked.
-// 'PLACING'  = Active placement mode: clicking cells stamps the selected menu tool over and over until B is pressed.
-// 'WIRING'   = Gate formula mode: selecting input cells, B to finish.
+// 'INTERACT' = Safe clicking mode: toggle input switches, view cells, navigate grid.
+// 'MENU'     = Top toolbar focus: scroll tools with LB/RB/D-pad. Entered via Start button.
+// 'PLACING'  = Active placement mode: clicking cells stamps the selected tool once, then returns to INTERACT.
+// 'WIRING'   = Gate formula mode: selecting input cells, B to finish. Entered via Select button on existing gates.
 let cursorCol = 0;
 let cursorRow = 0;
 let selectedMenuIndex = 0;
@@ -168,9 +168,9 @@ function updateStatusBar() {
   const cell = gridData[`${cursorRow}_${cursorCol}`];
   let modeLabel = currentMode;
   if (currentMode === 'INTERACT') modeLabel = 'INTERACT (Click/Toggle switches)';
-  if (currentMode === 'MENU') modeLabel = 'MENU (Selecting tool)';
-  if (currentMode === 'PLACING') modeLabel = `PLACING: ${menuItems[selectedMenuIndex].label} (B to exit)`;
-  if (currentMode === 'WIRING') modeLabel = 'WIRING (Select inputs, B or Start to finish)';
+  if (currentMode === 'MENU') modeLabel = 'MENU (Use LB/RB to select tool, Start to confirm)';
+  if (currentMode === 'PLACING') modeLabel = `PLACING: ${menuItems[selectedMenuIndex].label} (Press A to stamp, B to exit)`;
+  if (currentMode === 'WIRING') modeLabel = 'WIRING (Select inputs with A, B or Select to finish)';
   
   let statusText = `Cell: ${cellCoord} | Mode: ${modeLabel}`;
   if (cell && cell.formula) statusText += ` | =${cell.formula}`;
@@ -261,8 +261,14 @@ function applyMenuItemToCursor() {
       gridData[cellKey] = { type: selectedType, value: 0, formula: '', inputs: [] };
       triggerRumble('light');
     }
+    
     evaluateAll();
     renderGrid();
+
+    // After stamping an item, return to INTERACT mode so you don't accidentally over-stamp
+    if (currentMode !== 'WIRING') {
+      currentMode = 'INTERACT';
+    }
   }
 }
 
@@ -289,7 +295,7 @@ function handleCellClick(r, c) {
     if (cell.type === 'NOT' || cell.type === 'STD_REF') {
       cell.inputs = [{ r, c }];
       cell.formula = cell.type === 'STD_REF' ? `${getCellId(r, c)}` : `${cell.type}(${getCellId(r, c)})`;
-      currentMode = 'PLACING';
+      currentMode = 'INTERACT'; // Return to interact after wiring single-input gate
       activeGateCell = null;
       triggerRumble('medium');
     } else {
@@ -333,7 +339,7 @@ function finishWiring() {
     const refs = wiringInputs.map(i => getCellId(i.r, i.c)).join(', ');
     cell.formula = refs ? `${cell.type}(${refs})` : '';
   }
-  currentMode = 'PLACING';
+  currentMode = 'INTERACT'; // Return to interact mode after finishing multi-input gate
   activeGateCell = null;
   wiringInputs = [];
   triggerRumble('medium');
@@ -624,13 +630,13 @@ function handleControllerInput(gp) {
   const btnB = gp.buttons[1]?.pressed;
   const btnLB = gp.buttons[4]?.pressed;
   const btnRB = gp.buttons[5]?.pressed;
-  const btnSelect = gp.buttons[8]?.pressed;
-  const btnStart = gp.buttons[9]?.pressed;
+  const btnSelect = gp.buttons[8]?.pressed; // DEDICATED SELECT BUTTON FOR RE-WIRING ONLY
+  const btnStart = gp.buttons[9]?.pressed;   // DEDICATED START BUTTON FOR MENU ONLY
 
   const anyDirection = up || down || left || right;
   const currentTime = performance.now();
 
-  // 1. MENU MODE
+  // 1. MENU MODE: Controlled ONLY by Start button to enter, LB/RB to scroll, A/Start to confirm
   if (currentMode === 'MENU') {
     if (btnLB || left) {
       selectedMenuIndex = (selectedMenuIndex - 1 + menuItems.length) % menuItems.length;
@@ -642,7 +648,7 @@ function handleControllerInput(gp) {
       triggerRumble('light');
       actionTaken = true;
     }
-    if (btnStart || btnSelect || btnA) {
+    if (btnStart || btnA) {
       currentMode = 'PLACING';
       triggerRumble('medium');
       actionTaken = true;
@@ -653,7 +659,7 @@ function handleControllerInput(gp) {
       actionTaken = true;
     }
   }
-  // 2. INTERACT MODE
+  // 2. INTERACT MODE: Safe navigation and switch toggling
   else if (currentMode === 'INTERACT') {
     if (anyDirection && (currentTime - lastInputTime > tapDelay)) {
       if (up) cursorRow = Math.max(0, cursorRow - 1);
@@ -670,21 +676,25 @@ function handleControllerInput(gp) {
       applyMenuItemToCursor();
       actionTaken = true;
     }
-    if (btnSelect || btnStart) {
+    // START button opens the menu
+    if (btnStart) {
+      currentMode = 'MENU';
+      triggerRumble('medium');
+      actionTaken = true;
+    }
+    // SELECT button strictly enters WIRING mode if hovering over a gate
+    if (btnSelect) {
       const cell = gridData[`${cursorRow}_${cursorCol}`];
       if (['AND', 'OR', 'XOR', 'NOT', 'STD_REF'].includes(cell.type)) {
         currentMode = 'WIRING';
         activeGateCell = { r: cursorRow, c: cursorCol };
         wiringInputs = [...cell.inputs];
         triggerRumble('medium');
-      } else {
-        currentMode = 'MENU';
-        triggerRumble('medium');
+        actionTaken = true;
       }
-      actionTaken = true;
     }
   }
-  // 3. PLACING MODE
+  // 3. PLACING MODE: Stamping selected item
   else if (currentMode === 'PLACING') {
     if (anyDirection && (currentTime - lastInputTime > tapDelay)) {
       if (up) cursorRow = Math.max(0, cursorRow - 1);
@@ -701,26 +711,14 @@ function handleControllerInput(gp) {
       applyMenuItemToCursor();
       actionTaken = true;
     }
+    // B button exits placing mode back to interact mode
     if (btnB) {
       currentMode = 'INTERACT';
       triggerRumble('medium');
       actionTaken = true;
     }
-    if (btnStart || btnSelect) {
-      const cell = gridData[`${cursorRow}_${cursorCol}`];
-      if (['AND', 'OR', 'XOR', 'NOT', 'STD_REF'].includes(cell.type)) {
-        currentMode = 'WIRING';
-        activeGateCell = { r: cursorRow, c: cursorCol };
-        wiringInputs = [...cell.inputs];
-        triggerRumble('medium');
-      } else {
-        currentMode = 'MENU';
-        triggerRumble('medium');
-      }
-      actionTaken = true;
-    }
   }
-  // 4. WIRING MODE
+  // 4. WIRING MODE: Selecting inputs for a gate
   else if (currentMode === 'WIRING') {
     if (anyDirection && (currentTime - lastInputTime > tapDelay)) {
       if (up) cursorRow = Math.max(0, cursorRow - 1);
@@ -737,7 +735,8 @@ function handleControllerInput(gp) {
       handleCellClick(cursorRow, cursorCol);
       actionTaken = true;
     }
-    if (btnB || btnStart || btnSelect) {
+    // B or SELECT finishes wiring
+    if (btnB || btnSelect) {
       finishWiring();
       actionTaken = true;
     }
