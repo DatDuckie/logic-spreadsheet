@@ -1,0 +1,233 @@
+:root {
+  --bg-primary: #090a0f;
+  --bg-secondary: #111318;
+  --grid-line: rgba(255, 255, 255, 0.15);
+  --text-light: #ffffff;
+  --text-dark: #000000;
+
+  /* Inputs: Green */
+  --input-off-bg: #0d2315;
+  --input-menu-bg: #1b5e20;
+  --input-on-bg: #4ade80;
+
+  /* Gates: Orange */
+  --gate-off-bg: #331005;
+  --gate-menu-bg: #c2410c;
+  --gate-on-bg: #fb923c;
+
+  /* Standard / Formula Cells: Red-Pink */
+  --std-default-bg: #090a0f;
+  --std-ref-off-bg: #38151a;
+  --std-ref-menu-bg: #6b212c;
+  --std-ref-on-bg: #e11d48;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  user-select: none;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-light);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Header & Toolbar */
+header {
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--grid-line);
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+h1 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+button {
+  background: #1e222d;
+  color: var(--text-light);
+  border: 1px solid var(--grid-line);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+button:hover {
+  background: #2a2f3d;
+}
+
+/* Menu / Palette Bar */
+.menu-bar {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.menu-item {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menu-item.active-menu {
+  border-color: #ffffff;
+  box-shadow: 0 0 8px rgba(255,255,255,0.4);
+}
+
+/* Menu Item Colors */
+.menu-empty { background: var(--bg-primary); color: var(--text-light); border-color: var(--grid-line); }
+.menu-input { background: var(--input-menu-bg); color: var(--text-light); }
+.menu-gate { background: var(--gate-menu-bg); color: var(--text-light); }
+.menu-std { background: var(--std-ref-menu-bg); color: var(--text-light); }
+
+/* Status / Formula Bar */
+.status-bar {
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--grid-line);
+  padding: 6px 16px;
+  font-size: 0.85rem;
+  font-family: monospace;
+  color: #a1a1aa;
+  display: flex;
+  gap: 16px;
+}
+
+/* Spreadsheet Grid Container */
+.grid-container {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  background-color: var(--bg-primary);
+}
+
+.spreadsheet-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.spreadsheet-table th, 
+.spreadsheet-table td {
+  border: 1px solid var(--grid-line);
+  text-align: center;
+  vertical-align: middle;
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spreadsheet-table th {
+  background-color: var(--bg-secondary);
+  color: #94a3b8;
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.spreadsheet-table th.col-header {
+  min-width: 80px;
+  height: 28px;
+}
+
+.spreadsheet-table td.row-header {
+  background-color: var(--bg-secondary);
+  color: #94a3b8;
+  width: 50px;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.spreadsheet-table td.cell {
+  width: 80px;
+  height: 36px;
+  cursor: pointer;
+  position: relative;
+}
+
+/* Cell States */
+.cell.empty {
+  background-color: var(--std-default-bg);
+  color: var(--text-light);
+}
+
+.cell.input-off { background-color: var(--input-off-bg); color: var(--text-light); }
+.cell.input-on { background-color: var(--input-on-bg); color: var(--text-dark); }
+
+.cell.gate-off { background-color: var(--gate-off-bg); color: var(--text-light); }
+.cell.gate-on { background-color: var(--gate-on-bg); color: var(--text-dark); }
+
+.cell.std-ref-off { background-color: var(--std-ref-off-bg); color: var(--text-light); }
+.cell.std-ref-on { background-color: var(--std-ref-on-bg); color: var(--text-dark); }
+
+/* Focus / Cursor Ring */
+.cell.focused {
+  outline: 2px solid #38bdf8;
+  outline-offset: -2px;
+  z-index: 3;
+}
+
+.cell.wiring-target {
+  box-shadow: inset 0 0 0 2px #facc15;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
+}
+
+/* Context Menu for Row/Col Deletion */
+.context-menu {
+  position: absolute;
+  background: var(--bg-secondary);
+  border: 1px solid var(--grid-line);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  display: none;
+  z-index: 100;
+  padding: 4px;
+}
+
+.context-menu-item {
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.context-menu-item:hover {
+  background: #2a2f3d;
+}
