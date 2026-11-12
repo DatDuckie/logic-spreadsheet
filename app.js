@@ -11,6 +11,10 @@ let currentMode = 'NAV'; // 'NAV' or 'WIRING'
 let activeGateCell = null;
 let wiringInputs = [];
 
+// Gamepad Debounce
+let lastInputTime = 0;
+const inputDelay = 140; // Milliseconds between controller inputs
+
 const menuItems = [
   { type: 'EMPTY', label: 'Empty', class: 'menu-empty' },
   { type: 'INPUT', label: 'Input (0/1)', class: 'menu-input' },
@@ -32,6 +36,27 @@ function initGrid() {
 
 function getCellId(r, c) {
   return String.fromCharCode(65 + c) + (r + 1);
+}
+
+// Haptic Feedback / Rumble Helper
+function triggerRumble(type = 'light') {
+  const gamepads = navigator.getGamepads();
+  const gp = gamepads[0];
+  
+  if (gp && gp.vibrationActuator) {
+    const duration = type === 'medium' ? 70 : 35;
+    const weakMag = type === 'medium' ? 0.5 : 0.2;
+    const strongMag = type === 'medium' ? 0.7 : 0.3;
+
+    gp.vibrationActuator.playEffect('dual-rumble', {
+      startDelay: 0,
+      duration: duration,
+      weakMagnitude: weakMag,
+      strongMagnitude: strongMag
+    }).catch(err => {
+      // Ignore if haptics are unsupported/restricted on device
+    });
+  }
 }
 
 // Render Spreadsheet Table
@@ -57,7 +82,7 @@ function renderGrid() {
       else if (cell.type === 'STD_REF') cssClass += cell.value === 1 ? 'std-ref-on' : 'std-ref-off';
 
       if (r === cursorRow && c === cursorCol) cssClass += ' focused';
-      if (currentMode === 'WIRING' && wiringinnedCheck(r, c)) cssClass += ' wiring-target';
+      if (currentMode === 'WIRING' && wiringPinnedCheck(r, c)) cssClass += ' wiring-target';
 
       let displayVal = '';
       if (cell.type === 'INPUT') displayVal = cell.value;
@@ -76,7 +101,7 @@ function renderGrid() {
   attachTableListeners();
 }
 
-function wiringinnedCheck(r, c) {
+function wiringPinnedCheck(r, c) {
   return wiringInputs.some(i => i.r === r && i.c === c);
 }
 
@@ -94,13 +119,12 @@ function updateStatusBar() {
   const cellCoord = getCellId(cursorRow, cursorCol);
   const cell = gridData[`${cursorRow}_${cursorCol}`];
   let statusText = `Cell: ${cellCoord} | Mode: ${currentMode}`;
-  if (cell.formula) statusText += ` | Formula: ${cell.formula}`;
+  if (cell && cell.formula) statusText += ` | Formula: ${cell.formula}`;
   document.getElementById('status-text').innerText = statusText;
 }
 
 // Logic Evaluation Engine
 function evaluateAll() {
-  // Simple propagation pass
   for (let i = 0; i < 5; i++) {
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
@@ -114,10 +138,7 @@ function evaluateCell(r, c) {
   const cell = gridData[`${r}_${c}`];
   if (!cell) return;
 
-  if (cell.type === 'INPUT') {
-    // Value set manually
-    return;
-  }
+  if (cell.type === 'INPUT') return;
 
   if (cell.type === 'STD_REF' && cell.inputs.length === 1) {
     const target = gridData[`${cell.inputs[0].r}_${cell.inputs[0].c}`];
@@ -152,20 +173,30 @@ function evaluateCell(r, c) {
 // Action Handlers
 function applyMenuItemToCursor() {
   const cellKey = `${cursorRow}_${cursorCol}`;
+  const currentCell = gridData[cellKey];
   const selectedType = menuItems[selectedMenuIndex].type;
   
+  // Shortcut: Toggle existing input switch directly
+  if (currentCell.type === 'INPUT') {
+    currentCell.value = currentCell.value === 1 ? 0 : 1;
+    triggerRumble('medium');
+    evaluateAll();
+    renderGrid();
+    return;
+  }
+
   if (selectedType === 'EMPTY') {
     gridData[cellKey] = { type: 'EMPTY', value: 0, formula: '', inputs: [] };
+    triggerRumble('light');
   } else if (selectedType === 'INPUT') {
-    const cur = gridData[cellKey];
-    const newVal = (cur.type === 'INPUT') ? (cur.value === 1 ? 0 : 1) : 1;
-    gridData[cellKey] = { type: 'INPUT', value: newVal, formula: '', inputs: [] };
+    gridData[cellKey] = { type: 'INPUT', value: 1, formula: '', inputs: [] };
+    triggerRumble('medium');
   } else if (['AND', 'OR', 'XOR', 'NOT', 'STD_REF'].includes(selectedType)) {
-    // Start Wiring Mode
     currentMode = 'WIRING';
     activeGateCell = { r: cursorRow, c: cursorCol };
     wiringInputs = [];
     gridData[cellKey] = { type: selectedType, value: 0, formula: '', inputs: [] };
+    triggerRumble('light');
   }
   evaluateAll();
   renderGrid();
@@ -177,19 +208,18 @@ function handleCellClick(r, c) {
   if (currentMode === 'WIRING') {
     const cell = gridData[`${activeGateCell.r}_${activeGateCell.c}`];
     
-    // Check max 10 inputs, or single input for NOT / STD_REF
     if (cell.type === 'NOT' || cell.type === 'STD_REF') {
       cell.inputs = [{ r, c }];
       cell.formula = `${cell.type}(${getCellId(r, c)})`;
       currentMode = 'NAV';
       activeGateCell = null;
+      triggerRumble('medium');
     } else {
-      // Multi input gate
       if (wiringInputs.length < 10) {
         wiringInputs.push({ r, c });
+        triggerRumble('light');
       }
       if (wiringInputs.length >= 10) {
-        // Auto finish at max 10
         finishWiring();
       }
     }
@@ -210,6 +240,7 @@ function finishWiring() {
   currentMode = 'NAV';
   activeGateCell = null;
   wiringInputs = [];
+  triggerRumble('medium');
   evaluateAll();
   renderGrid();
 }
@@ -218,42 +249,13 @@ function finishWiring() {
 function attachTableListeners() {
   const cells = document.querySelectorAll('.cell');
   cells.forEach(cell => {
-    cell.addEventListener('click', (e) => {
+    cell.addEventListener('click', () => {
       const r = parseInt(cell.dataset.row);
       const c = parseInt(cell.dataset.col);
       handleCellClick(r, c);
     });
   });
-
-  // Long press for mobile / touch / right click for desktop on headers
-  const headers = document.querySelectorAll('.col-header, .row-header');
-  headers.forEach(header => {
-    let pressTimer;
-    header.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      showContextMenu(e.pageX, e.pageY, header);
-    });
-    header.addEventListener('touchstart', (e) => {
-      pressTimer = setTimeout(() => {
-        const touch = e.touches[0];
-        showContextMenu(touch.pageX, touch.pageY, header);
-      }, 600);
-    });
-    header.addEventListener('touchend', () => clearTimeout(pressTimer));
-  });
 }
-
-function showContextMenu(x, y, header) {
-  const menu = document.getElementById('context-menu');
-  menu.style.left = `${x}внішpx` || `${x}px`;
-  menu.style.top = `${y}px`;
-  menu.style.display = 'block';
-  // Context actions can be hooked here
-}
-
-document.addEventListener('click', () => {
-  document.getElementById('context-menu').style.display = 'none';
-});
 
 // CSV Export
 function exportToCSV() {
@@ -262,7 +264,6 @@ function exportToCSV() {
     let rowArr = [];
     for (let c = 0; c < cols; c++) {
       const cell = gridData[`${r}_${c}`];
-      rowArr.value = cell.formula ? `"${cell.formula}"` : cell.value;
       rowArr.push(cell.formula ? `"${cell.formula}"` : cell.value);
     }
     csvContent += rowArr.join(',') + '\r\n';
@@ -277,45 +278,100 @@ function exportToCSV() {
 
 document.getElementById('export-btn').addEventListener('click', exportToCSV);
 
-// Gamepad API Poll Loop
+// Gamepad API Poll Loop with Haptics & Debounce
 function pollGamepads() {
   const gamepads = navigator.getGamepads();
-  if (gamepads && gamepads[0]) {
-    const gp = gamepads[0];
-    // Check buttons/dpad with basic debounce
-    // (Implementation handles smooth frame-rate polling)
+  const gp = gamepads[0];
+
+  if (gp) {
+    const currentTime = performance.now();
+    if (currentTime - lastInputTime > inputDelay) {
+      if (handleControllerInput(gp)) {
+        lastInputTime = currentTime;
+      }
+    }
   }
   requestAnimationFrame(pollGamepads);
 }
 
-// Keyboard Listeners
+function handleControllerInput(gp) {
+  let actionTaken = false;
+
+  const up = gp.buttons[12].pressed;
+  const down = gp.buttons[13].pressed;
+  const left = gp.buttons[14].pressed;
+  const right = gp.buttons[15].pressed;
+  
+  const btnA = gp.buttons[0].pressed;
+  const btnB = gp.buttons[1].pressed;
+  const btnLB = gp.buttons[4].pressed;
+  const btnRB = gp.buttons[5].pressed;
+  const btnStart = gp.buttons[9].pressed;
+
+  if (currentMode === 'NAV') {
+    if (up) { cursorRow = Math.max(0, cursorRow - 1); triggerRumble('light'); actionTaken = true; }
+    if (down) { cursorRow = Math.min(rows - 1, cursorRow + 1); triggerRumble('light'); actionTaken = true; }
+    if (left) { cursorCol = Math.max(0, cursorCol - 1); triggerRumble('light'); actionTaken = true; }
+    if (right) { cursorCol = Math.min(cols - 1, cursorCol + 1); triggerRumble('light'); actionTaken = true; }
+    
+    if (btnLB) { selectedMenuIndex = (selectedMenuIndex - 1 + menuItems.length) % menuItems.length; triggerRumble('light'); actionTaken = true; }
+    if (btnRB) { selectedMenuIndex = (selectedMenuIndex + 1) % menuItems.length; triggerRumble('light'); actionTaken = true; }
+    
+    if (btnA) { applyMenuItemToCursor(); actionTaken = true; }
+    if (btnStart) { 
+      const cell = gridData[`${cursorRow}_${cursorCol}`];
+      if (['AND', 'OR', 'XOR', 'NOT', 'STD_REF'].includes(cell.type)) {
+        currentMode = 'WIRING';
+        activeGateCell = { r: cursorRow, c: cursorCol };
+        wiringInputs = [];
+        triggerRumble('medium');
+      }
+      actionTaken = true; 
+    }
+  } 
+  else if (currentMode === 'WIRING') {
+    if (up) { cursorRow = Math.max(0, cursorRow - 1); triggerRumble('light'); actionTaken = true; }
+    if (down) { cursorRow = Math.min(rows - 1, cursorRow + 1); triggerRumble('light'); actionTaken = true; }
+    if (left) { cursorCol = Math.max(0, cursorCol - 1); triggerRumble('light'); actionTaken = true; }
+    if (right) { cursorCol = Math.min(cols - 1, cursorCol + 1); triggerRumble('light'); actionTaken = true; }
+
+    if (btnA) {
+      handleCellClick(cursorRow, cursorCol);
+      actionTaken = true;
+    }
+    if (btnB || btnStart) {
+      finishWiring();
+      actionTaken = true;
+    }
+  }
+
+  if (actionTaken) {
+    evaluateAll();
+    renderGrid();
+  }
+
+  return actionTaken;
+}
+
+// Keyboard Fallbacks
 window.addEventListener('keydown', (e) => {
   if (currentMode === 'NAV') {
     if (e.key === 'ArrowUp') cursorRow = Math.max(0, cursorRow - 1);
     if (e.key === 'ArrowDown') cursorRow = Math.min(rows - 1, cursorRow + 1);
     if (e.key === 'ArrowLeft') cursorCol = Math.max(0, cursorCol - 1);
     if (e.key === 'ArrowRight') cursorCol = Math.min(cols - 1, cursorCol + 1);
-    if (e.key === 'q' || e.key === 'Q') {
-      selectedMenuIndex = (selectedMenuIndex - 1 + menuItems.length) % menuItems.length;
-    }
-    if (e.key === 'e' || e.key === 'E') {
-      selectedMenuIndex = (selectedMenuIndex + 1) % menuItems.length;
-    }
-    if (e.key === 'Enter' || e.key === ' ') {
-      applyMenuItemToCursor();
-    }
+    if (e.key === 'q' || e.key === 'Q') selectedMenuIndex = (selectedMenuIndex - 1 + menuItems.length) % menuItems.length;
+    if (e.key === 'e' || e.key === 'E') selectedMenuIndex = (selectedMenuIndex + 1) % menuItems.length;
+    if (e.key === 'Enter' || e.key === ' ') applyMenuItemToCursor();
   } else if (currentMode === 'WIRING') {
     if (e.key === 'ArrowUp') cursorRow = Math.max(0, cursorRow - 1);
     if (e.key === 'ArrowDown') cursorRow = Math.min(rows - 1, cursorRow + 1);
     if (e.key === 'ArrowLeft') cursorCol = Math.max(0, cursorCol - 1);
     if (e.key === 'ArrowRight') cursorCol = Math.min(cols - 1, cursorCol + 1);
-    if (e.key === 'Enter') {
-      handleCellClick(cursorRow, cursorCol);
-    }
-    if (e.key === 'b' || e.key === 'B' || e.key === 'Escape') {
-      finishWiring();
-    }
+    if (e.key === 'Enter') handleCellClick(cursorRow, cursorCol);
+    if (e.key === 'b' || e.key === 'B' || e.key === 'Escape') finishWiring();
   }
+  evaluateAll();
   renderGrid();
   e.preventDefault();
 });
