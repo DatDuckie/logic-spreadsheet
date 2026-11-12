@@ -106,6 +106,7 @@ header.menu-locked .menu-item.active-menu {
 .menu-input { background: var(--input-menu-bg); color: var(--text-light); }
 .menu-gate { background: var(--gate-menu-bg); color: var(--text-light); }
 .menu-std { background: var(--std-ref-menu-bg); color: var(--text-light); }
+.menu-const { background: var(--const-menu-bg); color: var(--text-light); }
 
 .export-btn {
   background: #1e293b;
@@ -216,6 +217,9 @@ header.menu-locked .menu-item.active-menu {
 
 .cell.std-ref-off { background-color: var(--std-ref-off-bg); color: var(--text-light); }
 .cell.std-ref-on { background-color: var(--std-ref-on-bg); color: var(--text-dark); }
+
+.cell.const-off { background-color: var(--const-off-bg); color: var(--text-light); }
+.cell.const-on { background-color: var(--const-on-bg); color: var(--text-dark); }
 
 /* Focus / Cursor Ring */
 .cell.focused {
